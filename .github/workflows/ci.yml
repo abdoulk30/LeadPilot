@@ -1,0 +1,29 @@
+# CI stub — flesh out once the tech stack is decided
+# (see leadpilot-docs/tech-stack/README.md and testing/ci-strategy.md)
+#
+# Intended shape once implemented:
+#   - lint / type-check
+#   - unit tests for each tool function against mocked API responses
+#   - eval-suite.md Case 1 and Case 2 against a mocked agent
+#   (Case 3 / adversarial + full pen-test-checklist.md run pre-deploy,
+#   not on every push — see testing/ci-strategy.md)
+#
+# No step here should ever hit real Google/Slack APIs — mocks/fixtures only.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No CI configured yet
+        run: |
+          echo "Tech stack not yet decided — see leadpilot-docs/tech-stack/README.md"
+          echo "Replace this workflow once lint/test tooling is chosen."

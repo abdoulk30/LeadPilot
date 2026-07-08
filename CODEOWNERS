@@ -1,0 +1,13 @@
+# CODEOWNERS
+# These owners are automatically requested for review on PRs touching
+# matching paths. Update as the team grows beyond two people.
+
+* @PixelAndFlow @abdoulk30
+
+# Security-sensitive paths — require explicit review from both owners
+/leadpilot-docs/security/ @PixelAndFlow @abdoulk30
+SECURITY.md @PixelAndFlow @abdoulk30
+
+# NOTE: GitHub handles above are best-guess (Marc's handle from prior
+# project history, Abdoul's from this repo's git remote). Confirm both
+# are correct GitHub usernames before relying on CODEOWNERS enforcement.

@@ -1,0 +1,20 @@
+Copyright (c) 2026 Marc Delsoin and Abdoul Ba. All rights reserved.
+
+PLACEHOLDER LICENSE — DECISION PENDING
+
+This file is a placeholder defaulting to "all rights reserved"
+(proprietary) because LeadPilot is currently intended as a commercial
+product handling real client sales data, not an open-source project.
+
+No license type has been formally decided yet. Before relying on this
+file:
+
+1. Confirm with Abdoul Ba whether the intended license is proprietary
+   (all rights reserved, no public redistribution/use), a source-
+   available license, or an open-source license (e.g. MIT, Apache 2.0).
+2. Replace this placeholder with the actual license text once decided.
+3. Log the decision and reasoning in leadpilot-docs/decisions/decisions-log.md.
+
+Until this is replaced, treat the code in this repository as fully
+proprietary and not licensed for reuse, distribution, or modification
+by anyone outside the named owners.

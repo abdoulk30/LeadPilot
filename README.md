@@ -27,6 +27,10 @@ Early build. Tech stack is not yet finalized — see the docs repo's
 - Treats all lead-sourced text as literal data, never as instructions
   — hardened against prompt injection by design
 
+## Roadmap
+
+See [ROADMAP.md](./ROADMAP.md) for what's shipped, in progress, and planned.
+
 ## Documentation
 
 Product requirements, architecture, security threat model, decisions,

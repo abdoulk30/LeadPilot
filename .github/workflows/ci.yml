@@ -1,14 +1,20 @@
-# CI stub — flesh out once the tech stack is decided
-# (see leadpilot-docs/tech-stack/README.md and testing/ci-strategy.md)
+# CI stub — still a placeholder, but the tech stack is now locked
+# (Decision 022, see leadpilot-docs/tech-stack/stack-overview.md and
+# leadpilot-docs/testing/ci-strategy.md): Python 3.11+, pytest.
 #
-# Intended shape once implemented:
-#   - lint / type-check
-#   - unit tests for each tool function against mocked API responses
-#   - eval-suite.md Case 1 and Case 2 against a mocked agent
-#   (Case 3 / adversarial + full pen-test-checklist.md run pre-deploy,
-#   not on every push — see testing/ci-strategy.md)
+# Intended shape once real code/tests exist (tracked in
+# leadpilot-docs/mvp/README.md build order, Step 4):
+#   - lint / type-check (ruff / mypy or equivalent)
+#   - pip install -r requirements.txt
+#   - unit tests for each of the 10 tools (PRD v1.04 section 3a)
+#     against mocked API responses — never real Google/Twilio/Slack
+#   - pytest tests/eval_suite/ — eval-suite.md Cases 1, 2, 4, 5 against
+#     a mocked agent (Case 3 / adversarial, Case 6 / unauthorized
+#     access, and the full pen-test-checklist.md run pre-deploy, not
+#     on every push — see testing/ci-strategy.md)
 #
-# No step here should ever hit real Google/Slack APIs — mocks/fixtures only.
+# No step here should ever hit real Google/Twilio/Slack APIs, and none
+# should require a real Neon Postgres instance — mocks/fixtures only.
 
 name: CI
 
@@ -25,5 +31,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: No CI configured yet
         run: |
-          echo "Tech stack not yet decided — see leadpilot-docs/tech-stack/README.md"
-          echo "Replace this workflow once lint/test tooling is chosen."
+          echo "Stack is locked (Decision 022) but no Python code or tests exist yet."
+          echo "See leadpilot-docs/mvp/README.md build order, Step 4."
+          echo "Replace this workflow once requirements.txt and tests/ exist."

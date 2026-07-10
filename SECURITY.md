@@ -24,12 +24,13 @@ Please include:
 ## Scope
 
 This policy covers the LeadPilot agent, its tool integrations (Google
-Sheets/Voice/Drive, Slack), and any dashboard or API surface. Of
-particular interest: prompt injection or any input that causes the
-agent to take an unintended action (e.g. an unauthorized Slack
-message, exposure of contact history) — see the internal threat model
-in `leadpilot-docs/security/threat-model.md` for the categories we're
-already tracking.
+Sheets/Drive/Gmail, Twilio, Slack), and any dashboard or API surface.
+Of particular interest: prompt injection, any input that causes the
+agent to take an unintended action (e.g. an unauthorized send, call
+handoff, spreadsheet write, or Slack message), or any way a staged
+action could execute without the rep's explicit approval — see the
+internal threat model in `leadpilot-docs/security/threat-model.md` for
+the categories we're already tracking.
 
 ## What to expect
 

@@ -50,3 +50,10 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+*.egg-info/
+.pytest_cache/
+
+# Local dev Postgres cluster (Decision 022 — Postgres via Neon in
+# prod; this is the "Postgres via Docker" local-dev alternative from
+# tech-stack/stack-overview.md, minus Docker). Never commit DB files.
+.devdata/

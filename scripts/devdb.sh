@@ -52,7 +52,15 @@ case "$cmd" in
     fi
     ;;
   start)
-    "$PG_BIN/pg_ctl" -D "$PGDATA_DIR" -l "$SOCK_DIR/pg.log" -o "-p $PORT -k $SOCK_DIR" start
+    # Check first instead of just calling `pg_ctl start` — starting an
+    # already-running cluster prints a scary-looking "could not start
+    # server" even though nothing is actually wrong (pg_ctl correctly
+    # refuses to run two postmasters against the same data directory).
+    if "$PG_BIN/pg_ctl" -D "$PGDATA_DIR" status >/dev/null 2>&1; then
+      echo "Already running."
+    else
+      "$PG_BIN/pg_ctl" -D "$PGDATA_DIR" -l "$SOCK_DIR/pg.log" -o "-p $PORT -k $SOCK_DIR" start
+    fi
     if ! PGHOST="$SOCK_DIR" PGPORT="$PORT" PGUSER="$DB_USER" "$PG_BIN/psql" -lqt | cut -d '|' -f1 | grep -qw "$DB_NAME"; then
       PGHOST="$SOCK_DIR" PGPORT="$PORT" PGUSER="$DB_USER" "$PG_BIN/createdb" "$DB_NAME"
       echo "Created database $DB_NAME"

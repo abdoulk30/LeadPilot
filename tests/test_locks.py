@@ -1,0 +1,147 @@
+"""Real tests against the real local Postgres for both locks in
+leadpilot.locks.
+"""
+
+import threading
+import uuid
+from datetime import timedelta
+
+from leadpilot import locks
+from leadpilot.db import SessionLocal
+from leadpilot.models.leads import Lead
+from leadpilot.models.run_lock import AgentRunLock, LeadActionLock
+
+
+def _make_lead(session) -> uuid.UUID:
+    lead = Lead(display_name="Lock Test Lead")
+    session.add(lead)
+    session.flush()
+    return lead.lead_id
+
+
+def test_lead_action_lock_first_acquire_succeeds(db_session):
+    lead_id = _make_lead(db_session)
+    assert locks.try_acquire_lead_action_lock(db_session, lead_id, cooldown=timedelta(minutes=15)) is True
+
+
+def test_lead_action_lock_blocks_within_cooldown(db_session):
+    lead_id = _make_lead(db_session)
+    assert locks.try_acquire_lead_action_lock(db_session, lead_id, cooldown=timedelta(minutes=15)) is True
+    # Same lead, immediately again, same cooldown — must be blocked.
+    assert locks.try_acquire_lead_action_lock(db_session, lead_id, cooldown=timedelta(minutes=15)) is False
+
+
+def test_lead_action_lock_allows_after_cooldown_elapsed(db_session):
+    lead_id = _make_lead(db_session)
+    assert locks.try_acquire_lead_action_lock(db_session, lead_id, cooldown=timedelta(minutes=15)) is True
+    # A cooldown of zero means "anything already committed counts as
+    # expired" — proves the WHERE clause actually re-evaluates against
+    # a real elapsed-time comparison, not just "row exists = blocked".
+    assert locks.try_acquire_lead_action_lock(db_session, lead_id, cooldown=timedelta(seconds=0)) is True
+
+
+def test_lead_action_lock_is_single_use_under_concurrency():
+    """The exact scenario security/pen-test-checklist.md names: 'Two
+    run cycles triggered in rapid succession against the same lead —
+    confirm the atomic lock actually prevents a double-send.' Fires 10
+    real concurrent attempts to acquire the same lead's action lock;
+    exactly one must win.
+    """
+    setup = SessionLocal()
+    lead_id = _make_lead(setup)
+    setup.commit()
+    setup.close()
+
+    results: list[bool] = []
+    results_lock = threading.Lock()
+
+    def attempt():
+        session = SessionLocal()
+        try:
+            won = locks.try_acquire_lead_action_lock(session, lead_id, cooldown=timedelta(minutes=15))
+            session.commit()
+            with results_lock:
+                results.append(won)
+        finally:
+            session.close()
+
+    threads = [threading.Thread(target=attempt) for _ in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    try:
+        assert results.count(True) == 1, (
+            f"expected exactly one of {len(threads)} concurrent lead-action-lock "
+            f"acquisitions to win, got {results.count(True)}"
+        )
+    finally:
+        cleanup = SessionLocal()
+        cleanup.query(LeadActionLock).filter_by(lead_id=lead_id).delete()
+        cleanup.query(Lead).filter_by(lead_id=lead_id).delete()
+        cleanup.commit()
+        cleanup.close()
+
+
+def test_run_lock_acquire_and_release(db_session):
+    lock_id = f"test_run_{uuid.uuid4()}"
+    assert locks.acquire_run_lock(db_session, run_by="run-a", stale_after=timedelta(hours=2), lock_id=lock_id) is True
+    # Still held — a second run must not acquire it.
+    assert locks.acquire_run_lock(db_session, run_by="run-b", stale_after=timedelta(hours=2), lock_id=lock_id) is False
+    assert locks.release_run_lock(db_session, run_by="run-a", lock_id=lock_id) is True
+    # Now free again.
+    assert locks.acquire_run_lock(db_session, run_by="run-b", stale_after=timedelta(hours=2), lock_id=lock_id) is True
+
+
+def test_run_lock_release_only_by_holder(db_session):
+    lock_id = f"test_run_{uuid.uuid4()}"
+    locks.acquire_run_lock(db_session, run_by="run-a", stale_after=timedelta(hours=2), lock_id=lock_id)
+    # run-b never held it — must not be able to release run-a's lock.
+    assert locks.release_run_lock(db_session, run_by="run-b", lock_id=lock_id) is False
+    assert locks.acquire_run_lock(db_session, run_by="run-c", stale_after=timedelta(hours=2), lock_id=lock_id) is False
+
+
+def test_run_lock_stale_lock_is_reclaimed(db_session):
+    lock_id = f"test_run_{uuid.uuid4()}"
+    # A run that acquired the lock and then crashed without releasing.
+    locks.acquire_run_lock(db_session, run_by="crashed-run", stale_after=timedelta(seconds=0), lock_id=lock_id)
+    # stale_after=0 means "immediately eligible for reclaim" — proves
+    # a dead run can't block the cron job forever.
+    assert locks.acquire_run_lock(db_session, run_by="new-run", stale_after=timedelta(seconds=0), lock_id=lock_id) is True
+
+
+def test_run_lock_is_single_use_under_concurrency():
+    """The batch-run equivalent of the lead-action concurrency test —
+    two overlapping Cron Job invocations must not both win the lock.
+    """
+    lock_id = f"test_run_concurrent_{uuid.uuid4()}"
+    results: list[bool] = []
+    results_lock = threading.Lock()
+
+    def attempt(run_id: str):
+        session = SessionLocal()
+        try:
+            won = locks.acquire_run_lock(session, run_by=run_id, stale_after=timedelta(hours=2), lock_id=lock_id)
+            session.commit()
+            with results_lock:
+                results.append(won)
+        finally:
+            session.close()
+
+    threads = [threading.Thread(target=attempt, args=(f"run-{i}",)) for i in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    try:
+        assert results.count(True) == 1, (
+            f"expected exactly one of {len(threads)} concurrent run-lock acquisitions "
+            f"to win, got {results.count(True)}"
+        )
+    finally:
+        cleanup = SessionLocal()
+        cleanup.query(AgentRunLock).filter_by(id=lock_id).delete()
+        cleanup.commit()
+        cleanup.close()

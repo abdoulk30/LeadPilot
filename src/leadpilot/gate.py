@@ -45,7 +45,7 @@ def create_draft(
     return event
 
 
-def approve(session: Session, event_id: uuid.UUID, rep_id: str) -> bool:
+def approve(session: Session, event_id: uuid.UUID, rep_id: uuid.UUID) -> bool:
     """The rep's 'Approve' click. Flips exactly one row from
     awaiting_rep_approval -> approved. Returns False (no-op) if the
     row isn't in that state — already approved, rejected, expired, or
@@ -81,7 +81,7 @@ def try_execute(session: Session, event_id: uuid.UUID) -> bool:
     return result.rowcount == 1
 
 
-def reject(session: Session, event_id: uuid.UUID, rep_id: str) -> bool:
+def reject(session: Session, event_id: uuid.UUID, rep_id: uuid.UUID) -> bool:
     """The rep declines a still-pending or approved-but-not-yet-executed
     action. Won't touch a row that's already executed, rejected, or
     expired.

@@ -105,10 +105,9 @@ class ContactHistory(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
-    # No FK yet — the reps table doesn't exist until the rep-session
-    # system (Step 1 item 3) is built. Add the FK constraint in a
-    # follow-up migration once it does.
-    rep_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    rep_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("reps.rep_id"), nullable=True
+    )
 
     outcome: Mapped[Outcome | None] = mapped_column(_pg_enum(Outcome, "outcome"), nullable=True)
     content_ref: Mapped[str | None] = mapped_column(String, nullable=True)

@@ -19,8 +19,12 @@ psycopg[binary]==3.3.4
 # Config / validation
 pydantic-settings==2.14.2
 
-# Rep-session auth (Decision 013)
-passlib[bcrypt]==1.7.4
+# Rep-session auth (Decision 013). Using bcrypt directly, not passlib
+# — verified passlib 1.7.4 is incompatible with bcrypt>=4.1 (it reads
+# a bcrypt.__about__ attribute that no longer exists), and passlib is
+# unmaintained, so pinning an old bcrypt to work around it would just
+# defer the problem. bcrypt's own hashpw/checkpw API is small enough
+# not to need a wrapper library.
 bcrypt==5.0.0
 
 # Google Sheets connector (PRD v1.04 section 3e)

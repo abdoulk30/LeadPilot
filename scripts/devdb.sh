@@ -11,6 +11,12 @@
 #   scripts/devdb.sh status
 #   scripts/devdb.sh reset    # wipe and reinitialize (destroys local data)
 #   scripts/devdb.sh url      # print the DATABASE_URL for .env.local
+#   scripts/devdb.sh psql     # open a psql shell against it
+#
+# Don't hand-run `psql -h .devdata ...` — `-h` treats a value starting
+# with / as a Unix socket directory and anything else as a hostname to
+# resolve over DNS, so a relative path silently fails. Use `psql` above
+# instead, which always builds the correct absolute path.
 
 set -euo pipefail
 
@@ -85,8 +91,11 @@ case "$cmd" in
   url)
     echo "postgresql+psycopg://$DB_USER@/$DB_NAME?host=$SOCK_DIR&port=$PORT"
     ;;
+  psql)
+    exec "$PG_BIN/psql" -h "$SOCK_DIR" -p "$PORT" -U "$DB_USER" -d "$DB_NAME"
+    ;;
   *)
-    echo "Usage: scripts/devdb.sh {init|start|stop|status|reset|url}" >&2
+    echo "Usage: scripts/devdb.sh {init|start|stop|status|reset|url|psql}" >&2
     exit 1
     ;;
 esac

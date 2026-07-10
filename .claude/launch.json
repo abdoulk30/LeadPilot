@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "leadpilot-dashboard",
+      "runtimeExecutable": ".venv/bin/uvicorn",
+      "runtimeArgs": ["leadpilot.app:app", "--reload", "--app-dir", "src"],
+      "port": 8000
+    }
+  ]
+}

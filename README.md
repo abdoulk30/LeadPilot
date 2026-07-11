@@ -12,11 +12,15 @@ Owners: Marc Delsoin, Abdoul Ba
 
 ## Status
 
-Pre-build. Tech stack is locked (Python + Claude Agent SDK, FastAPI,
-Postgres via Neon, Render — see the docs repo's
-`tech-stack/stack-overview.md`, Decision 022), but no application code
-exists yet — see the docs repo's `mvp/README.md` build order for what's
-next.
+Step 1 (foundation) is merged to `main` (2026-07-10): authenticated
+rep sessions, the contact-history/approval-gate table, dedup/run-lock
+tables, and `GoogleSheetsConnector` are real, tested code — see
+CHANGELOG.md and the docs repo's `mvp/README.md` Step 1 for what's
+built and verified. Tech stack is locked (Python + Claude Agent SDK,
+FastAPI, Postgres via Neon, Render — see the docs repo's
+`tech-stack/stack-overview.md`, Decision 022). Step 2 (the tools)
+hasn't started — see the docs repo's `mvp/README.md` build order for
+what's next.
 
 ## What it does
 

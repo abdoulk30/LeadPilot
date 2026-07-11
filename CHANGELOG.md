@@ -28,6 +28,15 @@ once a first release is cut.
   template, CI workflow comments) to Decision 022 (tech stack locked)
   and PRD v1.04 (10 tools, Google Voice dependency fully retired) —
   no functional change, docs/scaffold accuracy only
+- Merged 2026-07-11 (commit `17fbc3e`, reviewed/approved by Abdoul):
+  corrected README/CHANGELOG to reflect the `abdouls-branch` merge,
+  annotated `.env.example`'s `GOOGLE_SERVICE_ACCOUNT_KEY_PATH`/
+  `GOOGLE_SHEETS_SOURCES` as superseded by `leadpilot-docs` Decision
+  026 (per-rep OAuth, not a service account — kept working for now
+  since Step 1's shipped code still depends on them), and added
+  `seed-data/leadpilot_test_leads_sheet_a.csv` for local Sheets
+  connector testing. Full reasoning in `leadpilot-docs` PR #1
+  (commit `8e902af`) and its decisions log, Decisions 026-028
 
 ### Notes
 - Step 1 (foundation) is merged to `main` as of 2026-07-10 — see

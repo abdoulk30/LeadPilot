@@ -187,6 +187,17 @@ def picker_test_harness():
     if settings.environment != "development":
         raise HTTPException(status_code=404)
 
+    # Picker's setAppId — the numeric Cloud project number, which is
+    # the segment before the first "-" in a Google OAuth client ID
+    # (e.g. "56917149985" in "56917149985-abc...apps.googleusercontent.com").
+    # Required specifically for drive.file scope: without it, Picker
+    # still shows files and fires a real "picked" callback, but Google
+    # never actually registers the per-file grant server-side against
+    # this OAuth client — the selection looks like it worked, but the
+    # access token still can't read the file afterward. This was a
+    # real bug caught live, not a hypothetical.
+    app_id = settings.google_oauth_client_id.split("-")[0]
+
     return f"""<!DOCTYPE html>
 <html>
 <head><title>LeadPilot — Picker test harness (dev only)</title></head>
@@ -223,6 +234,7 @@ def picker_test_harness():
       .addView(google.picker.ViewId.SPREADSHEETS)
       .setOAuthToken(access_token)
       .setDeveloperKey('{settings.google_picker_api_key}')
+      .setAppId('{app_id}')
       .setCallback(async (data) => {{
         if (data.action === google.picker.Action.PICKED) {{
           const fileId = data.docs[0].id;

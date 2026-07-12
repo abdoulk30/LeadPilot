@@ -11,8 +11,12 @@ spreadsheets and duplicate outreach.
   intake sheets
 - Automatic tracking of every call, text, and email touch, so reps
   never duplicate outreach
-- Instant Slack alerts to the back office the moment a deal file is
-  complete
+- The moment a deal file is complete, a ready-to-approve handoff to
+  the back office is waiting for review — nothing posts to Slack, or
+  anywhere else, until the rep says so
+- Reps connect their own Google account and choose exactly which
+  sheets LeadPilot can see — nothing is shared with the tool ahead of
+  time
 - Built with prompt-injection resistance from day one — the agent
   treats all lead data as literal text, never as instructions
 

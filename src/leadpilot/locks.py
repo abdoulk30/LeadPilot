@@ -41,38 +41,40 @@ def try_acquire_lead_action_lock(session: Session, lead_id: uuid.UUID, cooldown:
 
 
 def acquire_run_lock(
-    session: Session, run_by: str, stale_after: timedelta, lock_id: str = "hourly_batch_run"
+    session: Session, rep_id: uuid.UUID, run_by: str, stale_after: timedelta
 ) -> bool:
-    """Cron-job mutex. Returns True only if the lock was free (no row
+    """Per-rep cron-job mutex (Decision 027/032 — reworked from a
+    singleton). Returns True only if that rep's lock was free (no row
     yet, or `locked_at` is NULL) or was left stuck by a crashed run
     older than `stale_after` — that staleness fallback exists so a
     process that dies without calling release_run_lock doesn't block
-    every future run forever.
+    every future run for that rep forever. A different rep's lock row
+    is untouched either way — this never blocks across reps.
     """
     now = datetime.now(timezone.utc)
     stmt = (
         insert(AgentRunLock)
-        .values(id=lock_id, locked_at=now, locked_by=run_by)
+        .values(rep_id=rep_id, locked_at=now, locked_by=run_by)
         .on_conflict_do_update(
-            index_elements=[AgentRunLock.id],
+            index_elements=[AgentRunLock.rep_id],
             set_={"locked_at": now, "locked_by": run_by},
             where=(AgentRunLock.locked_at.is_(None)) | (AgentRunLock.locked_at < (now - stale_after)),
         )
-        .returning(AgentRunLock.id)
+        .returning(AgentRunLock.rep_id)
     )
     result = session.execute(stmt)
     return result.first() is not None
 
 
-def release_run_lock(session: Session, run_by: str, lock_id: str = "hourly_batch_run") -> bool:
-    """Only the run that holds the lock can release it — a stale/dead
-    run's release call (if it somehow woke back up) can't clobber a
-    newer run that has since taken the lock over via the staleness
-    fallback.
+def release_run_lock(session: Session, rep_id: uuid.UUID, run_by: str) -> bool:
+    """Only the run that holds this rep's lock can release it — a
+    stale/dead run's release call (if it somehow woke back up) can't
+    clobber a newer run that has since taken the lock over via the
+    staleness fallback.
     """
     result = session.execute(
         update(AgentRunLock)
-        .where(AgentRunLock.id == lock_id, AgentRunLock.locked_by == run_by)
+        .where(AgentRunLock.rep_id == rep_id, AgentRunLock.locked_by == run_by)
         .values(locked_at=None, locked_by=None)
     )
     return result.rowcount == 1

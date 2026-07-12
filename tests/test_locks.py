@@ -6,9 +6,10 @@ import threading
 import uuid
 from datetime import timedelta
 
-from leadpilot import locks
+from leadpilot import auth, locks
 from leadpilot.db import SessionLocal
 from leadpilot.models.leads import Lead
+from leadpilot.models.rep import Rep, RepSession
 from leadpilot.models.run_lock import AgentRunLock, LeadActionLock
 
 
@@ -17,6 +18,11 @@ def _make_lead(session) -> uuid.UUID:
     session.add(lead)
     session.flush()
     return lead.lead_id
+
+
+def _make_rep(session) -> uuid.UUID:
+    rep = auth.create_rep(session, email=f"{uuid.uuid4()}-lock-test@example.com", password="testpassword123")
+    return rep.rep_id
 
 
 def test_lead_action_lock_first_acquire_succeeds(db_session):
@@ -85,44 +91,61 @@ def test_lead_action_lock_is_single_use_under_concurrency():
 
 
 def test_run_lock_acquire_and_release(db_session):
-    lock_id = f"test_run_{uuid.uuid4()}"
-    assert locks.acquire_run_lock(db_session, run_by="run-a", stale_after=timedelta(hours=2), lock_id=lock_id) is True
-    # Still held — a second run must not acquire it.
-    assert locks.acquire_run_lock(db_session, run_by="run-b", stale_after=timedelta(hours=2), lock_id=lock_id) is False
-    assert locks.release_run_lock(db_session, run_by="run-a", lock_id=lock_id) is True
+    rep_id = _make_rep(db_session)
+    assert locks.acquire_run_lock(db_session, rep_id, run_by="run-a", stale_after=timedelta(hours=2)) is True
+    # Still held — a second run for the same rep must not acquire it.
+    assert locks.acquire_run_lock(db_session, rep_id, run_by="run-b", stale_after=timedelta(hours=2)) is False
+    assert locks.release_run_lock(db_session, rep_id, run_by="run-a") is True
     # Now free again.
-    assert locks.acquire_run_lock(db_session, run_by="run-b", stale_after=timedelta(hours=2), lock_id=lock_id) is True
+    assert locks.acquire_run_lock(db_session, rep_id, run_by="run-b", stale_after=timedelta(hours=2)) is True
 
 
 def test_run_lock_release_only_by_holder(db_session):
-    lock_id = f"test_run_{uuid.uuid4()}"
-    locks.acquire_run_lock(db_session, run_by="run-a", stale_after=timedelta(hours=2), lock_id=lock_id)
+    rep_id = _make_rep(db_session)
+    locks.acquire_run_lock(db_session, rep_id, run_by="run-a", stale_after=timedelta(hours=2))
     # run-b never held it — must not be able to release run-a's lock.
-    assert locks.release_run_lock(db_session, run_by="run-b", lock_id=lock_id) is False
-    assert locks.acquire_run_lock(db_session, run_by="run-c", stale_after=timedelta(hours=2), lock_id=lock_id) is False
+    assert locks.release_run_lock(db_session, rep_id, run_by="run-b") is False
+    assert locks.acquire_run_lock(db_session, rep_id, run_by="run-c", stale_after=timedelta(hours=2)) is False
 
 
 def test_run_lock_stale_lock_is_reclaimed(db_session):
-    lock_id = f"test_run_{uuid.uuid4()}"
+    rep_id = _make_rep(db_session)
     # A run that acquired the lock and then crashed without releasing.
-    locks.acquire_run_lock(db_session, run_by="crashed-run", stale_after=timedelta(seconds=0), lock_id=lock_id)
+    locks.acquire_run_lock(db_session, rep_id, run_by="crashed-run", stale_after=timedelta(seconds=0))
     # stale_after=0 means "immediately eligible for reclaim" — proves
     # a dead run can't block the cron job forever.
-    assert locks.acquire_run_lock(db_session, run_by="new-run", stale_after=timedelta(seconds=0), lock_id=lock_id) is True
+    assert locks.acquire_run_lock(db_session, rep_id, run_by="new-run", stale_after=timedelta(seconds=0)) is True
+
+
+def test_run_lock_does_not_block_a_different_rep(db_session):
+    """The actual point of the per-rep rework (Decision 027/032): rep
+    A's run being in progress must never block rep B's run — the old
+    singleton design would have blocked this.
+    """
+    rep_a = _make_rep(db_session)
+    rep_b = _make_rep(db_session)
+    assert locks.acquire_run_lock(db_session, rep_a, run_by="run-a", stale_after=timedelta(hours=2)) is True
+    # Rep A's lock is held — rep B's must be completely unaffected.
+    assert locks.acquire_run_lock(db_session, rep_b, run_by="run-b", stale_after=timedelta(hours=2)) is True
 
 
 def test_run_lock_is_single_use_under_concurrency():
     """The batch-run equivalent of the lead-action concurrency test —
-    two overlapping Cron Job invocations must not both win the lock.
+    two overlapping Cron Job invocations for the *same* rep must not
+    both win the lock.
     """
-    lock_id = f"test_run_concurrent_{uuid.uuid4()}"
+    setup = SessionLocal()
+    rep_id = _make_rep(setup)
+    setup.commit()
+    setup.close()
+
     results: list[bool] = []
     results_lock = threading.Lock()
 
     def attempt(run_id: str):
         session = SessionLocal()
         try:
-            won = locks.acquire_run_lock(session, run_by=run_id, stale_after=timedelta(hours=2), lock_id=lock_id)
+            won = locks.acquire_run_lock(session, rep_id, run_by=run_id, stale_after=timedelta(hours=2))
             session.commit()
             with results_lock:
                 results.append(won)
@@ -142,6 +165,8 @@ def test_run_lock_is_single_use_under_concurrency():
         )
     finally:
         cleanup = SessionLocal()
-        cleanup.query(AgentRunLock).filter_by(id=lock_id).delete()
+        cleanup.query(AgentRunLock).filter_by(rep_id=rep_id).delete()
+        cleanup.query(RepSession).filter_by(rep_id=rep_id).delete()
+        cleanup.query(Rep).filter_by(rep_id=rep_id).delete()
         cleanup.commit()
         cleanup.close()

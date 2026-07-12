@@ -30,24 +30,30 @@ nontrivial change:
 ## Current build state
 
 Step 1 (foundation) is merged to `main`: rep auth/sessions, the
-contact-history/approval-gate state machine, dedup/run-lock tables, and
-`GoogleSheetsConnector`. Step 2 (the actual agent tools —
-`fetch_all_leads`, `send_lead_text`, `send_lead_email`,
-`dispatch_slack_handoff`, `update_lead_sheet`, `verify_drive_contents`,
-etc.) has not been started.
+contact-history/approval-gate state machine, and dedup/run-lock
+tables. Step 2 (the actual agent tools) is in progress on
+`abdouls-branch` — done so far: `rep_google_credentials` (Decision 026,
+refresh tokens encrypted via `crypto.py`, Decision 029), the
+`/auth/google/connect|callback|access-token` endpoints, and
+`GoogleSheetsConnector` reworked for per-rep OAuth (no more service
+account). Not yet started: `fetch_all_leads`, `send_lead_text`,
+`send_lead_email`, `dispatch_slack_handoff`, `update_lead_sheet`,
+`verify_drive_contents`, `fetch_ad_hoc_sheet`, `log_call_outcome`,
+`search_communications`, the prompt-injection validation layer, and
+`agent_run_locks`'s per-rep mutex rework (Decision 027).
 
-**Known drift to be aware of:** `leadpilot-docs` Decision 026 (2026-07-11)
-reversed the Google access model from a shared service account to
-per-rep OAuth (`drive.file` scope + Google Picker, one-time consent,
-refresh token stored per rep in a not-yet-built `rep_google_credentials`
-table). The `GoogleSheetsConnector` in this repo (`connectors/google_sheets.py`)
-still implements the **old** service-account model — it was correct
-when Step 1 shipped, but reworking it for per-rep OAuth is explicit
-Step 2 scope, not yet done. Don't treat its current implementation or
-docstrings as the target design; check Decision 026 first. The
-`.env.example` vars `GOOGLE_SERVICE_ACCOUNT_KEY_PATH` /
-`GOOGLE_SHEETS_SOURCES` are marked superseded there but kept working
-since this connector still depends on them.
+**Known gap, not drift:** the real end-to-end OAuth flow (an actual
+human clicking through Google's consent screen) hasn't been verified
+live yet — blocked on Abdoul's Google account not being on the
+project's OAuth test-user allowlist (a Google Cloud Console
+config issue, confirmed unrelated to the code: the failed attempt's
+echoed request parameters were all correct). `tests/test_google_sheets_connector_live.py`'s
+4 live-data tests auto-skip until a rep completes that flow for real —
+treat SKIPPED there as "not yet verified," not "broken."
+`GOOGLE_SERVICE_ACCOUNT_KEY_PATH`/`GOOGLE_SHEETS_SOURCES` in
+`.env.example` are now fully dead — nothing reads them anymore, kept
+only as a documented-superseded trail per Decision 026's entry in
+`decisions/README.md`.
 
 ## Commands
 

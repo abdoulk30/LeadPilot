@@ -1,7 +1,6 @@
-# Pinned to what was verified available on PyPI on 2026-07-09.
-# Scoped to Step 1 (leadpilot-docs/mvp/README.md build order) only —
-# Claude Agent SDK, Twilio, and slack_sdk are Step 2 (the tools) and
-# not added until that work starts.
+# Pinned to what was verified available on PyPI. Step 1 pins are dated
+# 2026-07-09; Step 2 additions are added as each tool needs them, not
+# all at once up front.
 
 # Web framework / dashboard (Decision 022)
 fastapi==0.139.0
@@ -27,10 +26,17 @@ pydantic-settings==2.14.2
 # not to need a wrapper library.
 bcrypt==5.0.0
 
-# Google Sheets connector (PRD v1.04 section 3e)
+# Google Sheets connector (PRD v1.04 section 3e), per-rep OAuth
+# (Decision 026)
 google-api-python-client==2.198.0
 google-auth-oauthlib==1.4.0
 google-auth-httplib2==0.4.0
+
+# Encrypts rep_google_credentials.refresh_token_encrypted at the
+# application layer (leadpilot/crypto.py, Decision 026's refresh-token
+# storage). Was already present transitively via google-auth; pinned
+# explicitly now that this repo imports it directly.
+cryptography==49.0.0
 
 # Testing
 pytest==9.1.1

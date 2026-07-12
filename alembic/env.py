@@ -10,7 +10,7 @@ from leadpilot.db import Base
 # Import every model module so its table lands in Base.metadata before
 # autogenerate runs — SQLAlchemy only registers a model once its module
 # has actually been imported somewhere.
-from leadpilot.models import contact_history, dedup, leads, rep, run_lock  # noqa: F401
+from leadpilot.models import contact_history, dedup, leads, rep, rep_google_credential, run_lock  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

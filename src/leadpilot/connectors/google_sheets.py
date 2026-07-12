@@ -1,43 +1,40 @@
-"""GoogleSheetsConnector — the only LeadSourceConnector implemented so
-far (Decision 015 / PRD v1.04 3e).
+"""GoogleSheetsConnector — reworked for per-rep OAuth (Decision 026),
+superseding the Step 1 shared-service-account version (Decision 024).
 
-Authenticates as a service account, not via the GOOGLE_OAUTH_CLIENT_ID/
-SECRET OAuth-consent flow that commands/README.md originally assumed
-for all Google access. Rationale: fetch_all_leads and update_lead_sheet
-run inside an unattended, hourly Cron Job — there's no human present to
-click through an OAuth consent screen, and no per-rep identity is
-relevant to reading/writing a shared business spreadsheet. A service
-account (leadpilot.config.settings.google_service_account_key_path)
-authenticates directly with no consent flow or refresh-token storage
-needed. Confirm with Marc that this makes sense to keep long-term
-alongside whatever Gmail-as-the-rep (Step 2, send_lead_email) ends up
-needing — that one plausibly does need real per-rep OAuth, since it
-has to send *as* a specific rep's own Gmail account.
+One instance per rep, constructed with that rep's own session + rep_id
+rather than a static admin-configured sources dict. Authenticates via
+a fresh access token minted from that rep's stored refresh token
+(leadpilot.google_oauth.get_fresh_access_token) — never a service
+account, never another rep's credential.
 
-Column mapping is fixed to the header row: Name, Phone, Email,
-Company, Source, Status (see the test sheet set up for Step 1). A real
-product would need this configurable per source sheet, since different
-marketing partners use different columns (per the PRD's "Siloed intake
-channels" problem statement) — that's Step 2 scope, not Step 1.
+source_id is now the Google file ID itself, not an admin-assigned
+label — there's no more static GOOGLE_SHEETS_SOURCES config. What a
+rep may access is entirely defined by what they granted through the
+Google Picker (leadpilot.google_credentials.granted_file_ids), which
+is what list_sources() returns and every other method validates
+against.
 
-row_ref is the 1-indexed sheet row number as a string (e.g. "2" for
-the first data row, after the header). This is fragile if rows get
-manually reordered or deleted in the sheet between runs — flagging
-this as a known limitation, not solving it now. A more robust design
-(e.g. a hidden per-row LeadPilot ID column) is a reasonable future
-improvement, not a Step 1 requirement.
+Column mapping is still fixed to the header row: Name, Phone, Email,
+Company, Source, Status. Configurable-per-sheet column mapping is
+still not built — same known limitation as Step 1, still not this
+rework's job to fix.
+
+row_ref is still the 1-indexed sheet row number as a string — same
+fragility-to-manual-reordering caveat as Step 1, unchanged by this
+rework.
 """
 
-from google.oauth2 import service_account
+import uuid
+
+from google.oauth2.credentials import Credentials as GoogleCredentials
 from googleapiclient.discovery import build
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from leadpilot.config import settings
+from leadpilot import google_credentials, google_oauth
 from leadpilot.connectors.base import ChangesSummary, FieldDiff, LeadRecord, LeadSourceConnector
 from leadpilot.models.dedup import LeadSourceRow
 
-_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 _HEADER_TO_FIELD = {
     "Name": "name",
     "Phone": "phone",
@@ -60,27 +57,49 @@ def _column_letter(index: int) -> str:
     return letters
 
 
+class RepNotConnectedError(ValueError):
+    """Raised by any method here if the rep has no active Google
+    connection — distinct from a plain ValueError (e.g. unknown
+    source_id) so callers (Step 2's tools) can tell "you need to
+    connect Google first" apart from "that sheet ID is wrong" and
+    surface the right message/action to the rep.
+    """
+
+
 class GoogleSheetsConnector(LeadSourceConnector):
-    def __init__(self, key_path: str | None = None, sources: dict[str, str] | None = None):
-        self._key_path = key_path or settings.google_service_account_key_path
-        self._sources = sources if sources is not None else settings.google_sheets_sources_map()
+    def __init__(self, session: Session, rep_id: uuid.UUID):
+        self._session = session
+        self._rep_id = rep_id
         self._service = None
 
     def _client(self):
         if self._service is None:
-            creds = service_account.Credentials.from_service_account_file(
-                self._key_path, scopes=_SCOPES
-            )
+            access_token = google_oauth.get_fresh_access_token(self._session, self._rep_id)
+            if access_token is None:
+                raise RepNotConnectedError(f"Rep {self._rep_id} has not connected a Google account")
+            creds = GoogleCredentials(token=access_token)
             self._service = build("sheets", "v4", credentials=creds)
         return self._service
 
     def list_sources(self) -> list[str]:
-        return list(self._sources.keys())
+        """This rep's Picker-granted file IDs — not a static
+        admin-configured list (Decision 026). Empty list if the rep
+        hasn't connected or hasn't granted any files yet; that's a
+        valid state, not an error.
+        """
+        return google_credentials.granted_file_ids(self._session, self._rep_id)
 
     def _sheet_id_for(self, source_id: str) -> str:
-        if source_id not in self._sources:
-            raise ValueError(f"Unknown source_id: {source_id!r}. Configured sources: {list(self._sources)}")
-        return self._sources[source_id]
+        """source_id IS the Google file ID as of this rework — this
+        just confirms the rep actually granted access to it, rather
+        than mapping through an admin config the way Step 1 did.
+        """
+        if source_id not in self.list_sources():
+            raise ValueError(
+                f"Rep {self._rep_id} has not granted access to source_id {source_id!r}. "
+                f"Granted: {self.list_sources()}"
+            )
+        return source_id
 
     def _fetch_header_and_rows(self, source_id: str) -> tuple[list[str], list[tuple[str, dict[str, str]]]]:
         """Returns (header_row, [(row_ref, {header: value}), ...]).
@@ -88,7 +107,7 @@ class GoogleSheetsConnector(LeadSourceConnector):
         assumed, so a write's column-letter lookup (commit_field_write)
         can never silently desync from the real column order — that's
         exactly the bug a hardcoded parallel column-letter list caused
-        (caught by tests/test_google_sheets_connector_live.py).
+        in Step 1 (caught by tests/test_google_sheets_connector_live.py).
         """
         sheet_id = self._sheet_id_for(source_id)
         result = (

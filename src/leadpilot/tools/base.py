@@ -74,5 +74,15 @@ def reset_registry_for_tests() -> None:
     register once, at import time) — this exists so tests can verify
     registration/duplicate-detection behavior without permanently
     polluting the real registry for the rest of the test run.
+
+    Callers that clear the registry mid-suite (test_tools_registry.py)
+    are responsible for restoring whatever was there before — see that
+    file's _clean_registry fixture, which snapshots before clearing and
+    restores after. Blindly clearing with nothing to restore would
+    permanently empty the registry for every test file that happens to
+    run afterward: registry.py's load_all_tools() calls
+    importlib.import_module(), which is a no-op for a module Python has
+    already cached in sys.modules, so a tool's @tool(...) decorator
+    would never re-run to re-register it.
     """
     _REGISTRY.clear()

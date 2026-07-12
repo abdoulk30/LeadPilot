@@ -13,11 +13,11 @@ immediately; if the caller controlled the single outer commit instead,
 two concurrent calls for the same rep could both see the lock as free
 and both "acquire" it, defeating the whole point.
 
-Dedup heuristic (Eval Case 2 — the same lead appearing on two separate
-intake sheets must consolidate into one record): a fetched row with no
-existing lead_source_rows entry is matched to an existing canonical
-Lead by exact phone match, then exact email match, in that order. No
-fuzzy matching. A row matching neither becomes a brand-new Lead.
+Dedup/upsert logic (Eval Case 2 — the same lead appearing on two
+separate intake sheets must consolidate into one record) lives in
+leadpilot.lead_ingest, shared with fetch_ad_hoc_sheet rather than
+duplicated — both tools do the same "ingest a sheet's rows" work,
+just with a different source_id loop around it.
 
 Accepts an optional `connector` for testing against a fake
 LeadSourceConnector implementation instead of a real Google API call —
@@ -28,14 +28,11 @@ defaulting to a real per-rep GoogleSheetsConnector.
 import uuid
 from datetime import timedelta
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from leadpilot import locks
-from leadpilot.connectors.base import LeadRecord, LeadSourceConnector
+from leadpilot import lead_ingest, locks
+from leadpilot.connectors.base import LeadSourceConnector
 from leadpilot.connectors.google_sheets import GoogleSheetsConnector
-from leadpilot.models.dedup import LeadSourceRow
-from leadpilot.models.leads import Lead
 from leadpilot.tools.base import tool
 
 RUN_LOCK_STALE_AFTER = timedelta(hours=2)
@@ -47,48 +44,6 @@ class RunAlreadyInProgressError(Exception):
     which is a real, different state from "a run is already in flight
     for this rep, try again shortly."
     """
-
-
-def _find_matching_lead(session: Session, phone: str | None, email: str | None) -> Lead | None:
-    if phone:
-        existing = session.execute(select(Lead).where(Lead.primary_phone == phone)).scalars().first()
-        if existing:
-            return existing
-    if email:
-        existing = session.execute(select(Lead).where(Lead.primary_email == email)).scalars().first()
-        if existing:
-            return existing
-    return None
-
-
-def _upsert_lead_for_record(session: Session, source_id: str, record: LeadRecord) -> uuid.UUID:
-    existing_row = session.execute(
-        select(LeadSourceRow).where(
-            LeadSourceRow.source_id == source_id, LeadSourceRow.row_ref == record.row_ref
-        )
-    ).scalar_one_or_none()
-
-    if existing_row is not None:
-        if existing_row.raw_data != record.raw:
-            existing_row.raw_data = record.raw
-        return existing_row.lead_id
-
-    matching_lead = _find_matching_lead(session, record.phone, record.email)
-    if matching_lead is not None:
-        lead_id = matching_lead.lead_id
-    else:
-        new_lead = Lead(
-            display_name=record.name,
-            primary_phone=record.phone,
-            primary_email=record.email,
-            company=record.company,
-        )
-        session.add(new_lead)
-        session.flush()
-        lead_id = new_lead.lead_id
-
-    session.add(LeadSourceRow(source_id=source_id, row_ref=record.row_ref, lead_id=lead_id, raw_data=record.raw))
-    return lead_id
 
 
 @tool(
@@ -118,19 +73,8 @@ def run(session: Session, rep_id: uuid.UUID, connector: LeadSourceConnector | No
         results = []
         for source_id in connector.list_sources():
             for record in connector.fetch_rows(source_id):
-                lead_id = _upsert_lead_for_record(session, source_id, record)
-                results.append(
-                    {
-                        "lead_id": str(lead_id),
-                        "source_id": source_id,
-                        "row_ref": record.row_ref,
-                        "name": record.name,
-                        "phone": record.phone,
-                        "email": record.email,
-                        "company": record.company,
-                        "status": record.status,
-                    }
-                )
+                lead_id = lead_ingest.upsert_lead_for_record(session, source_id, record)
+                results.append(lead_ingest.record_to_dict(source_id, lead_id, record))
         session.commit()
         return results
     except Exception:

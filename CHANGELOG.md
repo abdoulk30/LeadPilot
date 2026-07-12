@@ -45,3 +45,10 @@ once a first release is cut.
   FastAPI, Postgres via Neon, Render — see
   `leadpilot-docs/tech-stack/stack-overview.md`); Step 2 (the tools)
   hasn't started — see `leadpilot-docs/mvp/README.md` build order
+- Step 0 (accounts and access) fully completed 2026-07-11 by Marc:
+  Google Cloud project/OAuth client/Picker key, Twilio trial account
+  and number, Slack app and bot token, Neon Postgres project (dev/prod
+  via branching), and Render account with GitHub already connected to
+  `abdoulk30/LeadPilot`. No real credential values live in this repo —
+  see `leadpilot-docs/mvp/README.md` Step 0 for what was created and
+  `leadpilot-docs/commands/README.md` for the env var each maps to

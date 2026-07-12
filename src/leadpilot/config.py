@@ -34,6 +34,15 @@ class Settings(BaseSettings):
     google_oauth_client_id: str = ""
     google_oauth_client_secret: str = ""
     google_picker_api_key: str = ""
+    # Where Google redirects after consent — must exactly match a URI
+    # registered on the OAuth client in Google Cloud Console. No
+    # default: wrong in prod if silently assumed, so require it be set.
+    google_oauth_redirect_uri: str = ""
+
+    # Fernet key (leadpilot.crypto) encrypting rep_google_credentials.
+    # refresh_token_encrypted. Generate with:
+    #   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    credential_encryption_key: str = ""
 
     # Superseded by Decision 026 — still read by the as-shipped Step 1
     # GoogleSheetsConnector for local dev until Step 2's rework lands.

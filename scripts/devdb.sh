@@ -92,7 +92,8 @@ case "$cmd" in
     echo "postgresql+psycopg://$DB_USER@/$DB_NAME?host=$SOCK_DIR&port=$PORT"
     ;;
   psql)
-    exec "$PG_BIN/psql" -h "$SOCK_DIR" -p "$PORT" -U "$DB_USER" -d "$DB_NAME"
+    shift
+    exec "$PG_BIN/psql" -h "$SOCK_DIR" -p "$PORT" -U "$DB_USER" -d "$DB_NAME" "$@"
     ;;
   *)
     echo "Usage: scripts/devdb.sh {init|start|stop|status|reset|url|psql}" >&2

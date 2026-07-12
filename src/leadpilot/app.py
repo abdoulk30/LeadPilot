@@ -9,11 +9,12 @@ AUTHENTICATION GUARD from PRD v1.04's system prompt.
 from collections.abc import Generator
 
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from leadpilot import auth, google_credentials, google_oauth
+from leadpilot.config import settings
 from leadpilot.db import SessionLocal
 from leadpilot.models.rep import Rep
 
@@ -155,6 +156,75 @@ def google_access_token(rep: Rep = Depends(require_rep), db: Session = Depends(g
     if token is None:
         raise HTTPException(status_code=404, detail="Rep has not connected a Google account")
     return {"access_token": token}
+
+
+@app.get("/dev/picker-test", response_class=HTMLResponse)
+def picker_test_harness():
+    """NOT Step 3's real UI — a bare page so Step 2 tools (fetch_all_leads
+    etc.) can be tested against real Picker-granted access, since
+    Google's drive.file scope only actually grants access to a file
+    once it's been selected through the real Picker widget (or created
+    by the app) — there's no way to fake that server-side. Gated behind
+    ENVIRONMENT so it's never reachable outside local dev.
+    """
+    if settings.environment != "development":
+        raise HTTPException(status_code=404)
+
+    return f"""<!DOCTYPE html>
+<html>
+<head><title>LeadPilot — Picker test harness (dev only)</title></head>
+<body>
+<h1>Google Picker test harness</h1>
+<p>Not the real Step 3 UI — exists so Step 2 tools can be tested against real Picker-granted files.</p>
+<p>Log in first via <a href="/docs">/docs</a> (POST /login), then come back to this page.</p>
+<button id="connect">1. Connect Google Account</button>
+<button id="pick" disabled>2. Pick a sheet</button>
+<pre id="log" style="white-space: pre-wrap; background: #eee; padding: 1em;"></pre>
+<script src="https://apis.google.com/js/api.js"></script>
+<script>
+  const log = (msg) => {{ document.getElementById('log').textContent += msg + '\\n'; }};
+
+  document.getElementById('connect').onclick = () => {{
+    window.location.href = '/auth/google/connect';
+  }};
+
+  gapi.load('picker', () => {{
+    document.getElementById('pick').disabled = false;
+    log('Picker API loaded.');
+  }});
+
+  document.getElementById('pick').onclick = async () => {{
+    const resp = await fetch('/auth/google/access-token');
+    if (!resp.ok) {{
+      log('Not connected yet (HTTP ' + resp.status + ') — click "Connect Google Account" first.');
+      return;
+    }}
+    const {{ access_token }} = await resp.json();
+    log('Got access token, opening Picker...');
+
+    const picker = new google.picker.PickerBuilder()
+      .addView(google.picker.ViewId.SPREADSHEETS)
+      .setOAuthToken(access_token)
+      .setDeveloperKey('{settings.google_picker_api_key}')
+      .setCallback(async (data) => {{
+        if (data.action === google.picker.Action.PICKED) {{
+          const fileId = data.docs[0].id;
+          log('Picked: ' + data.docs[0].name + ' (' + fileId + ')');
+          const grantResp = await fetch('/auth/google/grant-file', {{
+            method: 'POST',
+            headers: {{ 'Content-Type': 'application/json' }},
+            body: JSON.stringify({{ file_id: fileId }}),
+          }});
+          const result = await grantResp.json();
+          log('Granted. This rep can now access: ' + JSON.stringify(result.granted_file_ids));
+        }}
+      }})
+      .build();
+    picker.setVisible(true);
+  }};
+</script>
+</body>
+</html>"""
 
 
 class GrantFileRequest(BaseModel):

@@ -25,17 +25,19 @@ class Settings(BaseSettings):
 
     rep_auth_session_secret: str = ""
 
-    # commands/README.md originally documented GOOGLE_OAUTH_CLIENT_ID/
-    # SECRET for all Google access. For fetch_all_leads/update_lead_sheet
-    # specifically, a service account is the right credential type —
-    # this is an unattended Cron Job, not a per-user consent flow (see
-    # GoogleSheetsConnector's module docstring). GOOGLE_OAUTH_CLIENT_ID/
-    # SECRET are kept below since Gmail-as-the-rep (Step 2,
-    # send_lead_email) is a genuinely different, per-rep-consent case —
-    # confirm with Marc before assuming both are needed long-term.
+    # Decision 026 (leadpilot-docs, 2026-07-11) supersedes Decision 024:
+    # Sheets/Drive/Gmail all authenticate per-rep via this OAuth client
+    # (drive.file scope + Google Picker), not a service account. Not
+    # wired into GoogleSheetsConnector yet — that rework is real Step 2
+    # work (leadpilot-docs mvp/README.md). These fields just make the
+    # values loadable now so Step 2 has something to build against.
     google_oauth_client_id: str = ""
     google_oauth_client_secret: str = ""
+    google_picker_api_key: str = ""
 
+    # Superseded by Decision 026 — still read by the as-shipped Step 1
+    # GoogleSheetsConnector for local dev until Step 2's rework lands.
+    # Do not build anything new against these two.
     google_service_account_key_path: str = ""
     # JSON mapping of source_id -> Google Sheet ID, e.g.
     # {"inbound_sheet_a": "1Byr..."}. A real "sources" config table is
@@ -45,6 +47,26 @@ class Settings(BaseSettings):
 
     def google_sheets_sources_map(self) -> dict[str, str]:
         return json.loads(self.google_sheets_sources)
+
+    # Twilio — send_lead_text and the SMS half of search_communications
+    # (Step 2, not built yet). Trial account: can only send to verified
+    # numbers until upgraded.
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_from_number: str = ""
+
+    # Slack — dispatch_slack_handoff (Step 2, not built yet). Only the
+    # bot token is needed for chat.postMessage; the App ID/Client ID+
+    # Secret/Signing Secret/Verification Token from Slack's app config
+    # page are for OAuth-install and event-subscription flows this
+    # product doesn't use (no interactivity in Phase 1 — see
+    # leadpilot-docs/tech-stack/stack-overview.md) and aren't stored
+    # here for that reason, not because they were lost.
+    slack_bot_token: str = ""
+    # Comma-separated channel/user IDs — real 3-stakeholder list isn't
+    # finalized yet (business decision, not a Step 0 blocker); a single
+    # test channel ID is fine for local dev.
+    slack_handoff_channel_ids: str = ""
 
 
 settings = Settings()

@@ -16,6 +16,7 @@ from leadpilot import auth
 from leadpilot.app import app
 from leadpilot.db import SessionLocal
 from leadpilot.models.rep import Rep, RepSession
+from leadpilot.models.rep_google_credential import RepGoogleCredential
 
 
 def _unique_email() -> str:
@@ -42,6 +43,9 @@ def logged_in_client():
 
     cleanup = SessionLocal()
     cleanup.query(RepSession).filter_by(rep_id=rep_id).delete()
+    # A test may have connected a (fake) Google credential for this
+    # rep — that row's FK to reps.rep_id must go before the rep itself.
+    cleanup.query(RepGoogleCredential).filter_by(rep_id=rep_id).delete()
     cleanup.query(Rep).filter_by(rep_id=rep_id).delete()
     cleanup.commit()
     cleanup.close()
@@ -96,6 +100,39 @@ def test_access_token_requires_login():
     client = TestClient(app)
     response = client.get("/auth/google/access-token")
     assert response.status_code == 401
+
+
+def test_grant_file_requires_login():
+    client = TestClient(app)
+    response = client.post("/auth/google/grant-file", json={"file_id": "some-file"})
+    assert response.status_code == 401
+
+
+def test_grant_file_for_unconnected_rep_is_404(logged_in_client):
+    response = logged_in_client.post("/auth/google/grant-file", json={"file_id": "some-file"})
+    assert response.status_code == 404
+
+
+def test_grant_file_persists_for_connected_rep(logged_in_client):
+    # Simulate a completed OAuth connection directly — the actual
+    # connect/callback round trip needs a real Google consent screen,
+    # tested separately/live. This just proves grant-file's own logic:
+    # store, then read back.
+    from leadpilot import google_credentials
+    from leadpilot.db import SessionLocal
+
+    whoami = logged_in_client.get("/whoami").json()
+    session = SessionLocal()
+    google_credentials.store_credential(session, uuid.UUID(whoami["rep_id"]), "fake-refresh-token")
+    session.commit()
+    session.close()
+
+    response = logged_in_client.post("/auth/google/grant-file", json={"file_id": "sheet-abc"})
+    assert response.status_code == 200
+    assert response.json()["granted_file_ids"] == ["sheet-abc"]
+
+    response2 = logged_in_client.post("/auth/google/grant-file", json={"file_id": "sheet-xyz"})
+    assert set(response2.json()["granted_file_ids"]) == {"sheet-abc", "sheet-xyz"}
 
 
 def test_access_token_for_rep_who_never_connected_google_is_404(logged_in_client):

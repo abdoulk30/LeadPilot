@@ -155,3 +155,24 @@ def google_access_token(rep: Rep = Depends(require_rep), db: Session = Depends(g
     if token is None:
         raise HTTPException(status_code=404, detail="Rep has not connected a Google account")
     return {"access_token": token}
+
+
+class GrantFileRequest(BaseModel):
+    file_id: str
+
+
+@app.post("/auth/google/grant-file")
+def google_grant_file(payload: GrantFileRequest, rep: Rep = Depends(require_rep), db: Session = Depends(get_db)):
+    """The other half of the Picker flow (Step 3 calls access-token to
+    open it, then calls this once per file the rep selects to actually
+    persist the grant) — read-only until this is called; picking a
+    file in the widget alone doesn't grant anything server-side.
+    Requires the rep to already be connected (a file grant with no
+    underlying OAuth connection makes no sense) — same 404 as
+    access-token for a rep who hasn't connected yet.
+    """
+    if google_credentials.get_refresh_token(db, rep.rep_id) is None:
+        raise HTTPException(status_code=404, detail="Rep has not connected a Google account")
+    google_credentials.add_granted_file(db, rep.rep_id, payload.file_id)
+    db.commit()
+    return {"granted_file_ids": google_credentials.granted_file_ids(db, rep.rep_id)}

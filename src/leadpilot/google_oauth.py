@@ -67,6 +67,30 @@ def verify_state(cookie_value: str | None, query_value: str | None) -> bool:
     return True
 
 
+def _pkce_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(settings.rep_auth_session_secret, salt="google-oauth-pkce")
+
+
+def sign_code_verifier(code_verifier: str) -> str:
+    """google-auth-oauthlib's Flow generates a PKCE code_verifier
+    on-instance inside authorization_url() (autogenerate_code_verifier
+    defaults to True) and expects the *same* Flow object back for
+    fetch_token(). Since /connect and /callback are two separate HTTP
+    requests — likely two different Flow instances entirely — the
+    verifier has to be carried across them explicitly, the same way
+    `state` already is. Signed for the same reason state is: a cheap
+    tamper/expiry check on top of the cookie.
+    """
+    return _pkce_serializer().dumps(code_verifier)
+
+
+def _unsign_code_verifier(signed_value: str) -> str | None:
+    try:
+        return _pkce_serializer().loads(signed_value, max_age=STATE_MAX_AGE_SECONDS)
+    except (BadSignature, SignatureExpired):
+        return None
+
+
 def _client_config() -> dict:
     return {
         "web": {
@@ -85,22 +109,33 @@ def _flow() -> Flow:
     return flow
 
 
-def build_authorization_url(state: str) -> str:
-    url, _ = _flow().authorization_url(
+def build_authorization_url(state: str) -> tuple[str, str]:
+    """Returns (authorization_url, signed_code_verifier). The caller
+    (app.py) must set the signed verifier as a cookie, the same way it
+    already does for state — see sign_code_verifier's docstring for why.
+    """
+    flow = _flow()
+    url, _ = flow.authorization_url(
         access_type="offline",
         prompt="consent",
         state=state,
         include_granted_scopes="true",
     )
-    return url
+    return url, sign_code_verifier(flow.code_verifier)
 
 
-def exchange_code_for_refresh_token(code: str) -> str:
+def exchange_code_for_refresh_token(code: str, signed_code_verifier: str) -> str:
     """Real call to Google's token endpoint. Raises whatever
-    google-auth-oauthlib raises (e.g. on an invalid/expired code) —
-    callers (app.py) turn that into an HTTP error, not swallow it.
+    google-auth-oauthlib raises (e.g. on an invalid/expired code, or a
+    missing/expired code_verifier) — callers (app.py) turn that into an
+    HTTP error, not swallow it.
     """
+    code_verifier = _unsign_code_verifier(signed_code_verifier)
+    if code_verifier is None:
+        raise ValueError("Missing or expired PKCE code_verifier — try connecting again")
+
     flow = _flow()
+    flow.code_verifier = code_verifier
     flow.fetch_token(code=code)
     refresh_token = flow.credentials.refresh_token
     if not refresh_token:

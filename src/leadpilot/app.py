@@ -97,6 +97,7 @@ def whoami(rep: Rep = Depends(require_rep)):
 
 
 GOOGLE_OAUTH_STATE_COOKIE = "leadpilot_google_oauth_state"
+GOOGLE_OAUTH_CODE_VERIFIER_COOKIE = "leadpilot_google_oauth_code_verifier"
 
 
 @app.get("/auth/google/connect")
@@ -107,11 +108,22 @@ def google_connect(response: Response, rep: Rep = Depends(require_rep)):
     itself (see Decision 023: rep login stays email+password).
     """
     state = google_oauth.generate_state()
-    auth_url = google_oauth.build_authorization_url(state)
+    auth_url, signed_code_verifier = google_oauth.build_authorization_url(state)
     redirect = RedirectResponse(url=auth_url)
     redirect.set_cookie(
         key=GOOGLE_OAUTH_STATE_COOKIE,
         value=state,
+        httponly=True,
+        samesite="lax",
+        max_age=google_oauth.STATE_MAX_AGE_SECONDS,
+    )
+    # PKCE — google-auth-oauthlib generates a code_verifier per Flow
+    # instance and needs it back at token-exchange time; /callback is a
+    # separate request (likely a separate Flow object entirely), so it
+    # has to be carried across the same way `state` already is.
+    redirect.set_cookie(
+        key=GOOGLE_OAUTH_CODE_VERIFIER_COOKIE,
+        value=signed_code_verifier,
         httponly=True,
         samesite="lax",
         max_age=google_oauth.STATE_MAX_AGE_SECONDS,
@@ -125,6 +137,7 @@ def google_callback(
     state: str,
     response: Response,
     leadpilot_google_oauth_state: str | None = Cookie(default=None),
+    leadpilot_google_oauth_code_verifier: str | None = Cookie(default=None),
     rep: Rep = Depends(require_rep),
     db: Session = Depends(get_db),
 ):
@@ -132,8 +145,12 @@ def google_callback(
         raise HTTPException(status_code=400, detail="Invalid or expired OAuth state — try connecting again")
     response.delete_cookie(GOOGLE_OAUTH_STATE_COOKIE)
 
+    if not leadpilot_google_oauth_code_verifier:
+        raise HTTPException(status_code=400, detail="Missing PKCE code verifier — try connecting again")
+    response.delete_cookie(GOOGLE_OAUTH_CODE_VERIFIER_COOKIE)
+
     try:
-        refresh_token = google_oauth.exchange_code_for_refresh_token(code)
+        refresh_token = google_oauth.exchange_code_for_refresh_token(code, leadpilot_google_oauth_code_verifier)
     except Exception as e:
         # Real failure from Google's token endpoint (bad/expired code,
         # revoked client, etc.) — surface it rather than pretending

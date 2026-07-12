@@ -207,6 +207,7 @@ def picker_test_harness():
 <p>Log in first via <a href="/docs">/docs</a> (POST /login), then come back to this page.</p>
 <button id="connect">1. Connect Google Account</button>
 <button id="pick" disabled>2. Pick a sheet</button>
+<button id="pick-folder" disabled>3. Pick a Drive folder (for verify_drive_contents)</button>
 <pre id="log" style="white-space: pre-wrap; background: #eee; padding: 1em;"></pre>
 <script src="https://apis.google.com/js/api.js"></script>
 <script>
@@ -218,8 +219,23 @@ def picker_test_harness():
 
   gapi.load('picker', () => {{
     document.getElementById('pick').disabled = false;
+    document.getElementById('pick-folder').disabled = false;
     log('Picker API loaded.');
   }});
+
+  const grantPicked = async (data) => {{
+    if (data.action === google.picker.Action.PICKED) {{
+      const fileId = data.docs[0].id;
+      log('Picked: ' + data.docs[0].name + ' (' + fileId + ')');
+      const grantResp = await fetch('/auth/google/grant-file', {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{ file_id: fileId }}),
+      }});
+      const result = await grantResp.json();
+      log('Granted. This rep can now access: ' + JSON.stringify(result.granted_file_ids));
+    }}
+  }};
 
   document.getElementById('pick').onclick = async () => {{
     const resp = await fetch('/auth/google/access-token');
@@ -235,19 +251,33 @@ def picker_test_harness():
       .setOAuthToken(access_token)
       .setDeveloperKey('{settings.google_picker_api_key}')
       .setAppId('{app_id}')
-      .setCallback(async (data) => {{
-        if (data.action === google.picker.Action.PICKED) {{
-          const fileId = data.docs[0].id;
-          log('Picked: ' + data.docs[0].name + ' (' + fileId + ')');
-          const grantResp = await fetch('/auth/google/grant-file', {{
-            method: 'POST',
-            headers: {{ 'Content-Type': 'application/json' }},
-            body: JSON.stringify({{ file_id: fileId }}),
-          }});
-          const result = await grantResp.json();
-          log('Granted. This rep can now access: ' + JSON.stringify(result.granted_file_ids));
-        }}
-      }})
+      .setCallback(grantPicked)
+      .build();
+    picker.setVisible(true);
+  }};
+
+  document.getElementById('pick-folder').onclick = async () => {{
+    const resp = await fetch('/auth/google/access-token');
+    if (!resp.ok) {{
+      log('Not connected yet (HTTP ' + resp.status + ') — click "Connect Google Account" first.');
+      return;
+    }}
+    const {{ access_token }} = await resp.json();
+    log('Got access token, opening Picker (folder mode)...');
+
+    // setSelectFolderEnabled makes the folder itself the pickable item
+    // (default FOLDERS view only lets you navigate into folders, not
+    // select one) — needed so verify_drive_contents has a folder_id
+    // it's actually been granted, not just a sheet_id.
+    const folderView = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+      .setSelectFolderEnabled(true);
+
+    const picker = new google.picker.PickerBuilder()
+      .addView(folderView)
+      .setOAuthToken(access_token)
+      .setDeveloperKey('{settings.google_picker_api_key}')
+      .setAppId('{app_id}')
+      .setCallback(grantPicked)
       .build();
     picker.setVisible(true);
   }};

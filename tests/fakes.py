@@ -14,6 +14,7 @@ its own real-API tests in test_google_sheets_connector_live.py.
 from sqlalchemy.orm import Session
 
 from leadpilot.connectors.base import ChangesSummary, FieldDiff, LeadRecord, LeadSourceConnector
+from leadpilot.connectors.google_drive import DriveContentsClient, DriveFileInfo
 
 
 class FakeLeadSourceConnector(LeadSourceConnector):
@@ -50,3 +51,15 @@ class FakeLeadSourceConnector(LeadSourceConnector):
 
     def detect_changes(self, source_id: str, session: Session) -> ChangesSummary:
         raise NotImplementedError("Not needed by any test using this fake yet")
+
+
+class FakeDriveContentsClient(DriveContentsClient):
+    def __init__(self, files_by_folder: dict[str, list[DriveFileInfo]]):
+        self._files_by_folder = files_by_folder
+
+    def list_folder_contents(self, folder_id: str) -> list[DriveFileInfo]:
+        # Matches GoogleDriveClient's real contract: an unknown/
+        # ungranted folder_id raises, it doesn't quietly return [].
+        if folder_id not in self._files_by_folder:
+            raise ValueError(f"Folder {folder_id!r} not found/granted")
+        return list(self._files_by_folder[folder_id])

@@ -9,10 +9,11 @@ AUTHENTICATION GUARD from PRD v1.04's system prompt.
 from collections.abc import Generator
 
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from leadpilot import auth
+from leadpilot import auth, google_credentials, google_oauth
 from leadpilot.db import SessionLocal
 from leadpilot.models.rep import Rep
 
@@ -92,3 +93,65 @@ def logout(
 @app.get("/whoami", response_model=RepOut)
 def whoami(rep: Rep = Depends(require_rep)):
     return RepOut(rep_id=str(rep.rep_id), email=rep.email, display_name=rep.display_name)
+
+
+GOOGLE_OAUTH_STATE_COOKIE = "leadpilot_google_oauth_state"
+
+
+@app.get("/auth/google/connect")
+def google_connect(response: Response, rep: Rep = Depends(require_rep)):
+    """Step 1 of the OAuth round trip. Requires an already-logged-in
+    rep (Decision 013's session, not Google's) — connecting a Google
+    account is something an authenticated rep does, not a login method
+    itself (see Decision 023: rep login stays email+password).
+    """
+    state = google_oauth.generate_state()
+    auth_url = google_oauth.build_authorization_url(state)
+    redirect = RedirectResponse(url=auth_url)
+    redirect.set_cookie(
+        key=GOOGLE_OAUTH_STATE_COOKIE,
+        value=state,
+        httponly=True,
+        samesite="lax",
+        max_age=google_oauth.STATE_MAX_AGE_SECONDS,
+    )
+    return redirect
+
+
+@app.get("/auth/google/callback")
+def google_callback(
+    code: str,
+    state: str,
+    response: Response,
+    leadpilot_google_oauth_state: str | None = Cookie(default=None),
+    rep: Rep = Depends(require_rep),
+    db: Session = Depends(get_db),
+):
+    if not google_oauth.verify_state(leadpilot_google_oauth_state, state):
+        raise HTTPException(status_code=400, detail="Invalid or expired OAuth state — try connecting again")
+    response.delete_cookie(GOOGLE_OAUTH_STATE_COOKIE)
+
+    try:
+        refresh_token = google_oauth.exchange_code_for_refresh_token(code)
+    except Exception as e:
+        # Real failure from Google's token endpoint (bad/expired code,
+        # revoked client, etc.) — surface it rather than pretending
+        # the connection succeeded.
+        raise HTTPException(status_code=400, detail=f"Google token exchange failed: {e}") from e
+
+    google_credentials.store_credential(db, rep.rep_id, refresh_token)
+    db.commit()
+    return {"connected": True, "rep_id": str(rep.rep_id)}
+
+
+@app.get("/auth/google/access-token")
+def google_access_token(rep: Rep = Depends(require_rep), db: Session = Depends(get_db)):
+    """For the Google Picker widget (Step 3) to call right before
+    opening the picker — a fresh, short-lived access token, minted on
+    demand from the rep's stored refresh token. Never the refresh
+    token itself; never cached here.
+    """
+    token = google_oauth.get_fresh_access_token(db, rep.rep_id)
+    if token is None:
+        raise HTTPException(status_code=404, detail="Rep has not connected a Google account")
+    return {"access_token": token}

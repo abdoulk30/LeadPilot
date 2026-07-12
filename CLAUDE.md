@@ -29,27 +29,49 @@ nontrivial change:
 
 ## Current build state
 
-Step 1 (foundation) is merged to `main`: rep auth/sessions, the
-contact-history/approval-gate state machine, and dedup/run-lock
-tables. Step 2 (the actual agent tools) is in progress on
-`abdouls-branch` — done so far: `rep_google_credentials` (Decision 026,
-refresh tokens encrypted via `crypto.py`, Decision 029), the
-`/auth/google/connect|callback|access-token` endpoints, and
-`GoogleSheetsConnector` reworked for per-rep OAuth (no more service
-account). Not yet started: `fetch_all_leads`, `send_lead_text`,
-`send_lead_email`, `dispatch_slack_handoff`, `update_lead_sheet`,
-`verify_drive_contents`, `fetch_ad_hoc_sheet`, `log_call_outcome`,
-`search_communications`, the prompt-injection validation layer, and
-`agent_run_locks`'s per-rep mutex rework (Decision 027).
+Step 1 (foundation) is merged to `main`. Step 2 (the actual agent
+tools), split between Marc and Abdoul (Decision 032), is in progress
+on `abdouls-branch` (Abdoul's half — Group A). Done so far:
+`rep_google_credentials` (Decision 026, refresh tokens encrypted via
+`crypto.py`, Decision 029), the full `/auth/google/connect|callback|
+access-token|grant-file` flow, `GoogleSheetsConnector` reworked for
+per-rep OAuth, `agent_run_locks`'s per-rep mutex rework (Decision
+027/032), the `fetch_all_leads` tool, the tool-registration scaffold
+(`tools/base.py`/`registry.py`, Decision 031), and the `/dev/picker-test`
+harness. Not yet built: `fetch_ad_hoc_sheet`, `update_lead_sheet`,
+`verify_drive_contents`, `log_call_outcome` (Abdoul's remaining 4),
+plus all 6 of Marc's tools (`get_contact_history`, `initiate_lead_call`,
+`send_lead_text`, `send_lead_email`, `dispatch_slack_handoff`,
+`search_communications`) and the prompt-injection validation layer.
 
-**Known gap, not drift:** the real end-to-end OAuth flow (an actual
-human clicking through Google's consent screen) hasn't been verified
-live yet — blocked on Abdoul's Google account not being on the
-project's OAuth test-user allowlist (a Google Cloud Console
-config issue, confirmed unrelated to the code: the failed attempt's
-echoed request parameters were all correct). `tests/test_google_sheets_connector_live.py`'s
-4 live-data tests auto-skip until a rep completes that flow for real —
-treat SKIPPED there as "not yet verified," not "broken."
+**The full real OAuth flow is now verified live, end to end** — not
+just designed on paper. `pytest` shows **83 passed, 0 skipped**
+(previously several `test_google_sheets_connector_live.py` and
+`test_fetch_all_leads.py` tests auto-skipped pending this). Two real
+bugs were caught getting here, both worth knowing before touching this
+code:
+
+1. **PKCE code_verifier was being discarded.** `google-auth-oauthlib`'s
+   `Flow` generates a PKCE `code_verifier` per instance inside
+   `authorization_url()` and needs that exact value back at
+   `fetch_token()` time. `/connect` and `/callback` are separate HTTP
+   requests, each building its own fresh `Flow` — the verifier was
+   being thrown away the moment `/connect` returned. Fixed by signing
+   it (same `itsdangerous` pattern as `state`) and carrying it in a
+   second cookie, same as `state` already was.
+2. **Picker was missing `.setAppId(<project number>)`.** Without it,
+   Google's Picker still shows real files and fires a real "picked"
+   callback with a valid file ID — the whole flow *looks* successful,
+   the ID gets stored correctly — but Google never actually registers
+   the `drive.file` per-file grant server-side. The access token
+   afterward still can't read the file (404, not 403 — Google's Drive
+   APIs return 404 rather than confirm a resource exists to an
+   unauthorized caller). Proved this wasn't a code bug first, by
+   bypassing the connector entirely with a raw `curl` call using the
+   same access token and getting the identical 404 straight from
+   Google. `app_id` is just the numeric segment before the first `-`
+   in the OAuth client ID (the Cloud project number).
+
 `GOOGLE_SERVICE_ACCOUNT_KEY_PATH`/`GOOGLE_SHEETS_SOURCES` in
 `.env.example` are now fully dead — nothing reads them anymore, kept
 only as a documented-superseded trail per Decision 026's entry in
@@ -92,7 +114,7 @@ pytest tests/test_gate.py::test_approve_then_execute_is_single_use   # single te
 
 Notes on the test suite:
 - Most tests run against the **real local dev Postgres** (`scripts/devdb.sh`), not mocks — the approval-gate and lock logic depend on real transaction/row-locking semantics a mock can't verify. Start `devdb.sh` before running tests.
-- `tests/test_google_sheets_connector_live.py` hits the **real** Google Sheets API against a live test sheet with real credentials. It auto-skips unless `GOOGLE_SERVICE_ACCOUNT_KEY_PATH` is set to a real, existing file — never run this in CI (see `leadpilot-docs/testing/ci-strategy.md`: never let CI make real Google/Slack calls).
+- `tests/test_google_sheets_connector_live.py`'s and `test_fetch_all_leads.py`'s live-data tests hit the **real** Google Sheets API against a live test sheet, authenticated as a real connected rep (per-rep OAuth, not a service account — that model is retired). They auto-skip unless a rep in the local dev DB has an active `rep_google_credentials` row with at least one granted file — get one by logging in, then visiting `/dev/picker-test` and clicking through Connect + Pick a sheet for real. Never run these in CI (see `leadpilot-docs/testing/ci-strategy.md`: never let CI make real Google/Slack calls).
 
 Migrations:
 
@@ -124,7 +146,7 @@ post to Slack, write the sheet, copy a number to the clipboard for a call).
 (`locks.py`). Two distinct locks solve two distinct threats
 (`security/threat-model.md` in the docs repo):
 - `LeadActionLock` — per-lead cooldown, prevents double-dialing/texting the same lead from overlapping runs.
-- `AgentRunLock` — singleton mutex so the hourly Cron Job can't run twice concurrently; has a staleness fallback so a crashed run doesn't block all future runs forever. (Flagged in `leadpilot-docs` Decision 027 as needing to become a *per-rep* mutex once the batch run is reworked from a single global run to one run per connected rep — not yet implemented.)
+- `AgentRunLock` — **per-rep** mutex (`rep_id` primary key, reworked from a singleton — Decision 027/032) so the same rep's batch run can't overlap with itself, while two different reps' runs never contend for the same row; has a staleness fallback so a crashed run doesn't block that rep's future runs forever. `fetch_all_leads` manages its own commit boundaries around acquire/release — deliberate, not an inconsistency with `gate.py`'s "caller commits" pattern: the lock only works as a real mutex if its acquisition is visible to other transactions immediately.
 
 **`LeadSourceConnector` (`connectors/base.py`) is the abstraction over lead sources**, currently only implemented by `GoogleSheetsConnector`. Its `write_field` is deliberately split into two methods rather than one gated method:
 - `stage_field_write()` — computes and returns a diff, never writes.

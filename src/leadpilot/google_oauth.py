@@ -10,13 +10,30 @@ Two things this deliberately does NOT do, worth stating up front:
   (Step 3's Picker integration) fetches a token right before it's
   needed rather than carrying one around.
 
-Scope is drive.file only (Decision 026) — LeadPilot only ever sees
-files a rep explicitly selects via the Google Picker, never their
-whole Drive. access_type=offline + prompt=consent on the authorization
-URL guarantees Google actually returns a refresh_token on every
-connect, not just the first one — without prompt=consent, a rep
-reconnecting after a prior consent can get an access-token-only
-response with no refresh_token in it, silently breaking storage.
+Scope was drive.file only through Decision 026 — LeadPilot only ever
+saw files a rep explicitly selected via the Google Picker, never their
+whole Drive. Decision 033 added drive.readonly on top of that: the
+drive.file per-item grant turned out not to extend to a folder's
+contents (confirmed against the real API — granting a folder via
+Picker does not grant visibility into files added to, or already
+sitting in, that folder), which made verify_drive_contents unable to
+do its actual job. drive.file is kept for the write path
+(update_lead_sheet's commit_field_write) and for the deliberate
+per-item consent UX on fetch_all_leads/fetch_ad_hoc_sheet;
+drive.readonly is what verify_drive_contents actually reads through.
+See Decision 033 for the full tradeoff and the note to revisit this
+for a narrower alternative later.
+
+access_type=offline + prompt=consent on the authorization URL
+guarantees Google actually returns a refresh_token on every connect,
+not just the first one — without prompt=consent, a rep reconnecting
+after a prior consent can get an access-token-only response with no
+refresh_token in it, silently breaking storage. Widening SCOPES here
+means every rep who connected before Decision 033 is holding a
+refresh token that does NOT cover drive.readonly — they must
+reconnect (redo the Connect Google Account flow) before
+verify_drive_contents will work for them; there's no way to silently
+upgrade an already-issued token's scope.
 """
 
 import secrets
@@ -31,7 +48,10 @@ from sqlalchemy.orm import Session
 from leadpilot import google_credentials
 from leadpilot.config import settings
 
-SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+SCOPES = [
+    "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/drive.readonly",
+]
 
 # The OAuth round trip should complete in well under this; a long
 # window just gives a stolen/replayed state value more time to matter.

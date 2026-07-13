@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session
 
 from leadpilot import google_credentials, google_oauth
 from leadpilot.connectors.base import ChangesSummary, FieldDiff, LeadRecord, LeadSourceConnector
+from leadpilot.connectors.google_drive import GoogleDriveClient, SPREADSHEET_MIME_TYPE
 from leadpilot.models.dedup import LeadSourceRow
 
 _HEADER_TO_FIELD = {
@@ -67,10 +68,11 @@ class RepNotConnectedError(ValueError):
 
 
 class GoogleSheetsConnector(LeadSourceConnector):
-    def __init__(self, session: Session, rep_id: uuid.UUID):
+    def __init__(self, session: Session, rep_id: uuid.UUID, drive_client: GoogleDriveClient | None = None):
         self._session = session
         self._rep_id = rep_id
         self._service = None
+        self._drive_client = drive_client
 
     def _client(self):
         if self._service is None:
@@ -81,24 +83,55 @@ class GoogleSheetsConnector(LeadSourceConnector):
             self._service = build("sheets", "v4", credentials=creds)
         return self._service
 
+    def _drive(self) -> GoogleDriveClient:
+        if self._drive_client is None:
+            self._drive_client = GoogleDriveClient(self._session, self._rep_id)
+        return self._drive_client
+
     def list_sources(self) -> list[str]:
-        """This rep's Picker-granted file IDs — not a static
-        admin-configured list (Decision 026). Empty list if the rep
-        hasn't connected or hasn't granted any files yet; that's a
-        valid state, not an error.
+        """This rep's Picker-granted file IDs, filtered down to actual
+        spreadsheets — not a static admin-configured list (Decision
+        026). Empty list if the rep hasn't connected or hasn't granted
+        any files yet; that's a valid state, not an error.
+
+        Filtering matters as of Decision 033: granted_file_ids is one
+        flat list shared with verify_drive_contents' folder grants, so
+        without this a rep who's granted a Drive folder would have
+        fetch_all_leads try to read that folder ID as a spreadsheet and
+        get a real 400 from the Sheets API. One Drive metadata lookup
+        per granted ID — fine at Phase 1's per-rep grant counts, not
+        worth batching yet. Accepts an injected drive_client for
+        testing (see tests/fakes.py) rather than always building a real
+        GoogleDriveClient — this method now makes real network calls
+        where it previously didn't, so tests need a way to opt out of
+        that, same reasoning as the `connector`/`client` DI params on
+        the Step 2 tools.
         """
-        return google_credentials.granted_file_ids(self._session, self._rep_id)
+        granted = google_credentials.granted_file_ids(self._session, self._rep_id)
+        drive = self._drive()
+        return [file_id for file_id in granted if drive.mime_type(file_id) == SPREADSHEET_MIME_TYPE]
 
     def _sheet_id_for(self, source_id: str) -> str:
         """source_id IS the Google file ID as of this rework — this
         just confirms the rep actually granted access to it, rather
         than mapping through an admin config the way Step 1 did.
+
+        Checks the raw granted_file_ids list, not the mimeType-filtered
+        list_sources() — deliberately. Rejecting an id the rep never
+        granted at all must stay a fast, local, no-network-call check
+        (tests/test_google_sheets_connector_live.py asserts this
+        explicitly, predating Decision 033's folder grants). "Granted,
+        but it's actually a folder not a spreadsheet" is a different,
+        rarer failure mode that only costs a network call for IDs that
+        really are in the granted list — see the mimeType check below.
         """
-        if source_id not in self.list_sources():
+        granted = google_credentials.granted_file_ids(self._session, self._rep_id)
+        if source_id not in granted:
             raise ValueError(
-                f"Rep {self._rep_id} has not granted access to source_id {source_id!r}. "
-                f"Granted: {self.list_sources()}"
+                f"Rep {self._rep_id} has not granted access to source_id {source_id!r}. Granted: {granted}"
             )
+        if self._drive().mime_type(source_id) != SPREADSHEET_MIME_TYPE:
+            raise ValueError(f"source_id {source_id!r} is granted but is not a Google Sheet")
         return source_id
 
     def _fetch_header_and_rows(self, source_id: str) -> tuple[list[str], list[tuple[str, dict[str, str]]]]:

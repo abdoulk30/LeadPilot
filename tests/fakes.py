@@ -63,3 +63,20 @@ class FakeDriveContentsClient(DriveContentsClient):
         if folder_id not in self._files_by_folder:
             raise ValueError(f"Folder {folder_id!r} not found/granted")
         return list(self._files_by_folder[folder_id])
+
+
+class FakeGoogleDriveClient:
+    """Not a DriveContentsClient — GoogleSheetsConnector only ever
+    calls .mime_type() on its injected drive client (Decision 033's
+    list_sources()/_sheet_id_for() filtering), never
+    list_folder_contents(), so this only fakes that one method rather
+    than implementing an interface it doesn't need.
+    """
+
+    def __init__(self, mime_types: dict[str, str]):
+        self._mime_types = mime_types
+
+    def mime_type(self, file_id: str) -> str:
+        if file_id not in self._mime_types:
+            raise ValueError(f"File {file_id!r} not found/granted")
+        return self._mime_types[file_id]

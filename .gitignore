@@ -57,3 +57,6 @@ venv/
 # prod; this is the "Postgres via Docker" local-dev alternative from
 # tech-stack/stack-overview.md, minus Docker). Never commit DB files.
 .devdata/
+
+# Support and diagnose ignore - files contain secrets which need to be regenerated after fix implemented
+supporttest.py

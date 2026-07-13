@@ -38,6 +38,12 @@ google-auth-httplib2==0.4.0
 # explicitly now that this repo imports it directly.
 cryptography==49.0.0
 
+# Slack Web API (Decision 022) — dispatch_slack_handoff
+# NOTE: version pin is a best guess, not verified against live PyPI —
+# this sandbox can't reach the network to check. If `pip install`
+# fails on this line, bump to whatever's actually current.
+slack_sdk==3.33.0
+
 # Testing
 pytest==9.1.1
 pytest-asyncio==1.4.0

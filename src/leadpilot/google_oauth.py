@@ -10,13 +10,31 @@ Two things this deliberately does NOT do, worth stating up front:
   (Step 3's Picker integration) fetches a token right before it's
   needed rather than carrying one around.
 
-Scope is drive.file only (Decision 026) — LeadPilot only ever sees
-files a rep explicitly selects via the Google Picker, never their
-whole Drive. access_type=offline + prompt=consent on the authorization
-URL guarantees Google actually returns a refresh_token on every
-connect, not just the first one — without prompt=consent, a rep
-reconnecting after a prior consent can get an access-token-only
-response with no refresh_token in it, silently breaking storage.
+Scope was drive.file only through Decision 026. Extended 2026-07-13 by
+Marc (send_lead_email, Decision 032/030's "Gmail-scope pairing" note)
+to add the two Gmail scopes both of Marc's remaining Group B tools
+need — gmail.send for send_lead_email, gmail.readonly for
+search_communications (not built yet, but adding its scope now too
+rather than incrementally: see the warning below and in
+.env.example about reps needing to reconnect every time this list
+grows). Least-privilege choices: gmail.send only allows sending, not
+reading/deleting a rep's inbox; gmail.readonly allows reading message
+content/attachments for search_communications but not sending or
+modifying anything — neither is the broad gmail.modify or
+mail.google.com scope.
+
+*** Any rep who already connected their Google account under the old
+drive.file-only scope list needs to reconnect (re-run the "Connect
+Google Account" flow) to grant these two new scopes — Google won't
+retroactively add them to an existing consent. Not yet reflected in
+any UI messaging (Step 3 work); flag to affected reps manually until
+then. ***
+
+access_type=offline + prompt=consent on the authorization URL
+guarantees Google actually returns a refresh_token on every connect,
+not just the first one — without prompt=consent, a rep reconnecting
+after a prior consent can get an access-token-only response with no
+refresh_token in it, silently breaking storage.
 """
 
 import secrets
@@ -31,7 +49,11 @@ from sqlalchemy.orm import Session
 from leadpilot import google_credentials
 from leadpilot.config import settings
 
-SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+SCOPES = [
+    "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/gmail.readonly",
+]
 
 # The OAuth round trip should complete in well under this; a long
 # window just gives a stolen/replayed state value more time to matter.

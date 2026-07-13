@@ -44,6 +44,11 @@ cryptography==49.0.0
 # fails on this line, bump to whatever's actually current.
 slack_sdk==3.33.0
 
+# Twilio SDK (Decision 022) — send_lead_text, SMS half of
+# search_communications. Same caveat as slack_sdk above: version pin
+# unverified against live PyPI.
+twilio==9.3.7
+
 # Testing
 pytest==9.1.1
 pytest-asyncio==1.4.0

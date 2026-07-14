@@ -34,7 +34,8 @@ from leadpilot.tools.base import tool
         "lead, instead of querying any external call-log service. Returns "
         "every contact-related event for that lead (call/text/email/Slack "
         "handoff/sheet edit), most recent first, including each event's "
-        "stage, rep-reported outcome where available, and who approved it. "
+        "stage, rep-reported outcome where available, message_type for Slack "
+        "handoffs, and who approved it. "
         "Call outcomes are null/'pending' until the rep reports back via "
         "log_call_outcome — that is expected, not missing data."
     ),
@@ -86,6 +87,7 @@ def get_contact_history(session: Session, *, lead_id: uuid.UUID | str) -> list[d
             "outcome": row.outcome.value if row.outcome is not None else None,
             "content_ref": row.content_ref,
             "note": row.note,
+            "message_type": row.message_type.value if row.message_type is not None else None,
         }
         for row in rows
     ]

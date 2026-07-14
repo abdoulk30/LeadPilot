@@ -61,6 +61,18 @@ class Stage(str, enum.Enum):
     EXPIRED = "expired"
 
 
+class MessageType(str, enum.Enum):
+    # dispatch_slack_handoff's three message types (Decision 010/019).
+    # Was stored in `note` as a stopgap since this table had no
+    # dedicated column for it (Decision 035 added this one) — `note`
+    # is genuine free text elsewhere (log_call_outcome's rep-written
+    # call notes), so overloading it meant one column carried two
+    # unrelated meanings depending on which tool wrote the row.
+    COMPLETION_HANDOFF = "completion_handoff"
+    INFO_REQUEST = "info_request"
+    URGENT_CALLBACK_REQUEST = "urgent_callback_request"
+
+
 class Outcome(str, enum.Enum):
     # send_lead_text / send_lead_email / dispatch_slack_handoff get a
     # real delivery outcome from their provider APIs.
@@ -112,6 +124,9 @@ class ContactHistory(Base):
     outcome: Mapped[Outcome | None] = mapped_column(_pg_enum(Outcome, "outcome"), nullable=True)
     content_ref: Mapped[str | None] = mapped_column(String, nullable=True)
     note: Mapped[str | None] = mapped_column(String, nullable=True)
+    message_type: Mapped[MessageType | None] = mapped_column(
+        _pg_enum(MessageType, "message_type"), nullable=True
+    )
 
     __table_args__ = (
         Index("ix_contact_history_lead_id", "lead_id"),

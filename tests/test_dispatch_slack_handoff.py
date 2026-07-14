@@ -11,7 +11,7 @@ import pytest
 
 from leadpilot import auth, gate
 from leadpilot.config import settings
-from leadpilot.models.contact_history import Channel, ContactHistory, Stage, Tool
+from leadpilot.models.contact_history import Channel, ContactHistory, MessageType, Stage, Tool
 from leadpilot.models.leads import Lead
 from leadpilot.tools.base import all_tools
 from leadpilot.tools.dispatch_slack_handoff import (
@@ -61,7 +61,7 @@ def test_stages_a_handoff_with_message_type_and_content(db_session, monkeypatch)
     assert row.channel == Channel.SLACK_HANDOFF
     assert row.tool == Tool.DISPATCH_SLACK_HANDOFF
     assert row.content_ref == "Docs are in, ready to close."
-    assert row.note == "completion_handoff"
+    assert row.message_type == MessageType.COMPLETION_HANDOFF
 
 
 def test_raises_for_invalid_message_type(db_session, monkeypatch):

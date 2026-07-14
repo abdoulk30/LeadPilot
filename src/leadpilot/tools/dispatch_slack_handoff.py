@@ -7,13 +7,12 @@ wired in Step 3. No exception for urgent_callback_request (Decision
 019) — urgency is not a reason to skip rep approval, even for an
 internal-only recipient.
 
-Schema note: architecture/state-schema.md's contact_history table has
-no dedicated column for a Slack message's type
-(completion_handoff/info_request/urgent_callback_request), even though
-the PRD tracks it as an output of this tool. Stored in the `note`
-field for now (documented there as "free text", not exclusively for
-call outcomes) rather than unilaterally changing shared schema —
-flagging this for Abdoul to confirm or replace with a real column.
+Schema note (Decision 035): contact_history now has a dedicated
+`message_type` column (models/contact_history.py's MessageType enum).
+Was stored in `note` as a stopgap — moved to its own column since
+`note` is genuine free text elsewhere (log_call_outcome's rep-written
+call notes), and message type is a fixed 3-value set that fits the
+same enum pattern already used for channel/tool/stage/outcome.
 
 execute_dispatch_slack_handoff() takes an injectable `slack_client`
 (defaults to a real slack_sdk WebClient) specifically so this can be
@@ -29,7 +28,7 @@ from sqlalchemy.orm import Session
 
 from leadpilot import gate
 from leadpilot.config import settings
-from leadpilot.models.contact_history import Channel, ContactHistory, Stage, Tool
+from leadpilot.models.contact_history import Channel, ContactHistory, MessageType, Tool
 from leadpilot.tools.base import tool
 
 _MESSAGE_TYPES = ("completion_handoff", "info_request", "urgent_callback_request")
@@ -96,7 +95,7 @@ def dispatch_slack_handoff(
         tool=Tool.DISPATCH_SLACK_HANDOFF,
         content_ref=message,
     )
-    event.note = message_type
+    event.message_type = MessageType(message_type)
     session.flush()
 
     return {
@@ -151,6 +150,6 @@ def execute_dispatch_slack_handoff(
 
     return {
         "event_id": str(event.event_id),
-        "message_type": event.note,
+        "message_type": event.message_type.value,
         "deliveries": deliveries,
     }

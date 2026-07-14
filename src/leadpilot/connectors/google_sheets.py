@@ -22,18 +22,34 @@ rework's job to fix.
 row_ref is still the 1-indexed sheet row number as a string — same
 fragility-to-manual-reordering caveat as Step 1, unchanged by this
 rework.
+
+commit_field_write's lock+expected-value check (Decision 034): see
+connectors/base.py's module docstring for the full contract. The
+implementation here reuses the header+rows read that column-letter
+lookup already needed — no extra Sheets API call for the freshness
+check.
 """
 
 import uuid
+from datetime import timedelta
 
 from google.oauth2.credentials import Credentials as GoogleCredentials
 from googleapiclient.discovery import build
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from leadpilot import google_credentials, google_oauth
-from leadpilot.connectors.base import ChangesSummary, FieldDiff, LeadRecord, LeadSourceConnector
+from leadpilot import google_credentials, google_oauth, locks
+from leadpilot.connectors.base import (
+    ChangesSummary,
+    ConcurrentWriteError,
+    FieldDiff,
+    LeadRecord,
+    LeadSourceConnector,
+    StaleWriteError,
+)
 from leadpilot.models.dedup import LeadSourceRow
+
+_CELL_LOCK_STALE_AFTER = timedelta(seconds=30)
 
 _HEADER_TO_FIELD = {
     "Name": "name",
@@ -67,10 +83,17 @@ class RepNotConnectedError(ValueError):
 
 
 class GoogleSheetsConnector(LeadSourceConnector):
-    def __init__(self, session: Session, rep_id: uuid.UUID):
+    def __init__(self, session: Session, rep_id: uuid.UUID, sheets_service=None):
+        """`sheets_service` is normally left None (a real Sheets API
+        client is built lazily from the rep's own OAuth token). Tests
+        pass a fake here — same injectable-client pattern already used
+        for Slack/Gmail/Twilio in the Step 2 tools — since this
+        connector previously had no way to be exercised without live
+        Google credentials and network access.
+        """
         self._session = session
         self._rep_id = rep_id
-        self._service = None
+        self._service = sheets_service
 
     def _client(self):
         if self._service is None:
@@ -158,21 +181,65 @@ class GoogleSheetsConnector(LeadSourceConnector):
                 )
         raise ValueError(f"Row {row_ref!r} not found in source {source_id!r}")
 
-    def commit_field_write(self, source_id: str, row_ref: str, field_name: str, value: str) -> None:
+    def commit_field_write(
+        self, source_id: str, row_ref: str, field_name: str, value: str, *, expected_current: str | None
+    ) -> None:
+        """See connectors/base.py's module docstring ("Concurrent-write
+        note", Decision 034) for the full contract. Two layers here:
+
+        1. A Postgres lock keyed to this exact cell, so two concurrent
+           commit_field_write calls (e.g. two reps approving
+           conflicting edits within moments of each other) can't both
+           read-then-write past each other. In practice this means the
+           second call *blocks* until the first finishes (see
+           leadpilot.locks.try_acquire_sheet_cell_lock's docstring) —
+           it doesn't reject immediately.
+        2. Once unblocked (or immediately, if there was no contention),
+           re-read the cell's live value and compare to
+           `expected_current`. A mismatch — which is exactly what a
+           second, just-unblocked racing writer will normally see —
+           raises StaleWriteError rather than silently overwriting.
+           This is also the only defense against someone editing the
+           sheet directly in Google's UI, bypassing LeadPilot (and its
+           lock) entirely.
+        """
         header_name = next((h for h, f in _HEADER_TO_FIELD.items() if f == field_name), None)
         if header_name is None:
             raise ValueError(f"Unknown field: {field_name!r}")
-        header, _ = self._fetch_header_and_rows(source_id)
-        if header_name not in header:
-            raise ValueError(f"Column {header_name!r} not found in source {source_id!r}'s header row: {header}")
-        col_letter = _column_letter(header.index(header_name))
-        sheet_id = self._sheet_id_for(source_id)
-        self._client().spreadsheets().values().update(
-            spreadsheetId=sheet_id,
-            range=f"{col_letter}{row_ref}",
-            valueInputOption="RAW",
-            body={"values": [[value]]},
-        ).execute()
+
+        cell_key = f"{source_id}:{row_ref}:{field_name}"
+        held_by = str(self._rep_id)
+        if not locks.try_acquire_sheet_cell_lock(self._session, held_by, cell_key, _CELL_LOCK_STALE_AFTER):
+            raise ConcurrentWriteError(source_id, row_ref, field_name)
+
+        try:
+            header, rows = self._fetch_header_and_rows(source_id)
+            if header_name not in header:
+                raise ValueError(f"Column {header_name!r} not found in source {source_id!r}'s header row: {header}")
+
+            live_current = None
+            found_row = False
+            for ref, raw in rows:
+                if ref == row_ref:
+                    found_row = True
+                    live_current = raw.get(header_name) or None
+                    break
+            if not found_row:
+                raise ValueError(f"Row {row_ref!r} not found in source {source_id!r}")
+
+            if live_current != expected_current:
+                raise StaleWriteError(source_id, row_ref, field_name, expected_current, live_current)
+
+            col_letter = _column_letter(header.index(header_name))
+            sheet_id = self._sheet_id_for(source_id)
+            self._client().spreadsheets().values().update(
+                spreadsheetId=sheet_id,
+                range=f"{col_letter}{row_ref}",
+                valueInputOption="RAW",
+                body={"values": [[value]]},
+            ).execute()
+        finally:
+            locks.release_sheet_cell_lock(self._session, held_by, cell_key)
 
     def detect_changes(self, source_id: str, session: Session) -> ChangesSummary:
         current_rows = self.fetch_rows(source_id)

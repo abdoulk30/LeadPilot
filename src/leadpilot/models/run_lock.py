@@ -1,5 +1,5 @@
-"""Two distinct locks, both named "run-lock" in mvp/README.md's build
-order but serving different failure modes from security/threat-model.md:
+"""Three distinct locks, serving three distinct failure modes from
+security/threat-model.md:
 
 1. LeadActionLock — per-lead duplicate-contact prevention. The named
    threat: "Two run cycles triggered in rapid succession against the
@@ -17,6 +17,22 @@ order but serving different failure modes from security/threat-model.md:
    the per-lead lock is: without it, two overlapping batch runs could
    both draft outreach for the same lead before either one's lock
    check would catch the other.
+
+3. SheetCellLock — added Decision 034, closing a real race condition
+   found in `GoogleSheetsConnector.commit_field_write`: two reps
+   (or the same rep's overlapping runs) approving edits to the same
+   spreadsheet cell around the same time could silently clobber each
+   other, since a plain Sheets API `values().update()` has no
+   built-in compare-and-swap. One row per in-flight write, keyed by a
+   `"{source_id}:{row_ref}:{field_name}"` string rather than a FK,
+   since the target isn't a LeadPilot-owned row — see
+   leadpilot.locks.try_acquire_sheet_cell_lock /
+   release_sheet_cell_lock, and connectors/base.py's
+   commit_field_write docstring for how this pairs with the
+   *separate* optimistic expected-value check (this lock only
+   protects against concurrent LeadPilot-originated commits; it can't
+   catch someone editing the sheet directly in Google's own UI, which
+   is what the expected-value check is for).
 """
 
 import uuid
@@ -45,5 +61,14 @@ class AgentRunLock(Base):
     # today; the column exists so a second named lock could be added
     # later without a schema change.
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    locked_by: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class SheetCellLock(Base):
+    __tablename__ = "sheet_cell_locks"
+
+    # "{source_id}:{row_ref}:{field_name}" — see module docstring.
+    cell_key: Mapped[str] = mapped_column(String, primary_key=True)
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     locked_by: Mapped[str | None] = mapped_column(String, nullable=True)

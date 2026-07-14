@@ -81,7 +81,9 @@ def test_commit_field_write_for_ungranted_source_raises_without_network_call(db_
 
     connector = GoogleSheetsConnector(db_session, rep_id)
     with pytest.raises(ValueError, match="has not granted access"):
-        connector.commit_field_write("not-granted-sheet", row_ref="2", field_name="status", value="Contacted")
+        connector.commit_field_write(
+            "not-granted-sheet", row_ref="2", field_name="status", value="Contacted", expected_current=None
+        )
 
 
 def test_client_raises_rep_not_connected_error_distinctly(db_session):
@@ -186,13 +188,42 @@ def test_commit_field_write_actually_writes_and_is_reversible(db_session):
     original = target.status
 
     try:
-        connector.commit_field_write(sheet_id, row_ref=target.row_ref, field_name="status", value="TEST_WRITE_PROBE")
+        connector.commit_field_write(
+            sheet_id, row_ref=target.row_ref, field_name="status", value="TEST_WRITE_PROBE",
+            expected_current=original,
+        )
         updated = next(r for r in connector.fetch_rows(sheet_id) if r.row_ref == target.row_ref)
         assert updated.status == "TEST_WRITE_PROBE"
     finally:
-        connector.commit_field_write(sheet_id, row_ref=target.row_ref, field_name="status", value=original or "")
+        connector.commit_field_write(
+            sheet_id, row_ref=target.row_ref, field_name="status", value=original or "",
+            expected_current="TEST_WRITE_PROBE",
+        )
         restored = next(r for r in connector.fetch_rows(sheet_id) if r.row_ref == target.row_ref)
         assert restored.status == (original or "")
+
+
+def test_commit_field_write_raises_stale_write_error_on_mismatch(db_session):
+    """Decision 034 — the rep approved an edit based on a value that's
+    since changed (simulated here by lying about expected_current).
+    """
+    rep_id, sheet_id = _skip_unless_live_rep_available(db_session)
+    connector = GoogleSheetsConnector(db_session, rep_id)
+
+    records = connector.fetch_rows(sheet_id)
+    assert records, "live test sheet must have at least one row"
+    target = records[0]
+
+    from leadpilot.connectors.base import StaleWriteError
+
+    with pytest.raises(StaleWriteError):
+        connector.commit_field_write(
+            sheet_id, row_ref=target.row_ref, field_name="status", value="SHOULD_NOT_WRITE",
+            expected_current="__a_value_the_cell_definitely_does_not_currently_hold__",
+        )
+    # Must not have written anything.
+    after = next(r for r in connector.fetch_rows(sheet_id) if r.row_ref == target.row_ref)
+    assert after.status == target.status
 
 
 def test_detect_changes_against_real_data(db_session):

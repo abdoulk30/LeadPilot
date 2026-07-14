@@ -12,6 +12,22 @@ intake sheets must consolidate into one record): a fetched row with no
 existing lead_source_rows entry is matched to an existing canonical
 Lead by exact phone match, then exact email match, in that order. No
 fuzzy matching. A row matching neither becomes a brand-new Lead.
+
+Also the single chokepoint for Decision 006's prompt-injection
+validation layer (leadpilot.injection_guard) — both fetch_all_leads
+and fetch_ad_hoc_sheet funnel every fetched row through
+upsert_lead_for_record before it's stored or returned, so hooking it
+here protects both without duplicating the check per-tool or
+per-connector. Dedup matching (find_matching_lead) runs against the
+*original*, unsanitized phone/email first, before sanitization mutates
+them — using the placeholder value for matching would make two
+unrelated flagged rows (different attacker, different sheet, same
+fixed placeholder string) collide into a single fabricated "lead" with
+no real phone or email in common. record.raw is deliberately never
+sanitized — it's an internal change-detection snapshot
+(detect_changes/LeadSourceRow.raw_data), never returned to a tool
+caller or shown to the agent, so it isn't part of this threat's actual
+attack surface.
 """
 
 import uuid
@@ -19,6 +35,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from leadpilot import injection_guard
 from leadpilot.connectors.base import LeadRecord
 from leadpilot.models.dedup import LeadSourceRow
 from leadpilot.models.leads import Lead
@@ -37,6 +54,9 @@ def find_matching_lead(session: Session, phone: str | None, email: str | None) -
 
 
 def upsert_lead_for_record(session: Session, source_id: str, record: LeadRecord) -> uuid.UUID:
+    original_phone, original_email = record.phone, record.email
+    injection_guard.sanitize_record_in_place(record)
+
     existing_row = session.execute(
         select(LeadSourceRow).where(
             LeadSourceRow.source_id == source_id, LeadSourceRow.row_ref == record.row_ref
@@ -48,7 +68,7 @@ def upsert_lead_for_record(session: Session, source_id: str, record: LeadRecord)
             existing_row.raw_data = record.raw
         return existing_row.lead_id
 
-    matching_lead = find_matching_lead(session, record.phone, record.email)
+    matching_lead = find_matching_lead(session, original_phone, original_email)
     if matching_lead is not None:
         lead_id = matching_lead.lead_id
     else:
@@ -69,7 +89,11 @@ def upsert_lead_for_record(session: Session, source_id: str, record: LeadRecord)
 def record_to_dict(source_id: str, lead_id: uuid.UUID, record: LeadRecord) -> dict:
     """The shared per-row output shape both tools return — PRD v1.05
     3a: fetch_ad_hoc_sheet returns "the same shape as fetch_all_leads's
-    per-row output."
+    per-row output." Called after upsert_lead_for_record has already
+    sanitized record in place, so `flagged` here is just "does any
+    guarded field equal the placeholder" — reliable because
+    FLAGGED_PLACEHOLDER is a fixed, specific string no legitimate cell
+    value would coincidentally match, not a heuristic re-check.
     """
     return {
         "lead_id": str(lead_id),
@@ -80,4 +104,7 @@ def record_to_dict(source_id: str, lead_id: uuid.UUID, record: LeadRecord) -> di
         "email": record.email,
         "company": record.company,
         "status": record.status,
+        "flagged": injection_guard.FLAGGED_PLACEHOLDER in (
+            record.name, record.phone, record.email, record.company, record.status,
+        ),
     }

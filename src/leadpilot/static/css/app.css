@@ -160,7 +160,13 @@ button, .btn {
   transition: transform 80ms ease, background 120ms ease, box-shadow 180ms ease;
 }
 
-button:hover, .btn:hover { background: rgba(255, 255, 255, 0.08); }
+/* Hover/highlight states are accent-tinted (Marc, 2026-07-14 —
+   reverses the earlier "accent only on the listed elements" rule for
+   interactive highlights specifically; hover was white-alpha). */
+button:hover, .btn:hover {
+  background: rgba(var(--ar), 0.12);
+  border-color: rgba(var(--ar), 0.35);
+}
 button:active, .btn:active { transform: scale(0.96); }
 
 button:disabled {
@@ -178,10 +184,15 @@ button:disabled {
   color: var(--accent-light);
   font-weight: 600;
 }
-.btn-approve:hover { background: rgba(var(--ar), 0.26); }
+.btn-approve:hover { background: rgba(var(--ar), 0.26); border-color: rgba(var(--ar), 0.6); }
 
+/* Semantic-red reject keeps its own hover — accent tint on a
+   destructive control would misread (semantic colors never re-theme). */
 .btn-danger-ghost { color: var(--danger); }
-.btn-danger-ghost:hover { background: rgba(255, 123, 123, 0.08); }
+.btn-danger-ghost:hover {
+  background: rgba(255, 123, 123, 0.08);
+  border-color: rgba(255, 123, 123, 0.35);
+}
 
 /* Registered-click glow ring (§5) — chosen over background flash. */
 .fx-glow {
@@ -276,7 +287,7 @@ label.field-label {
   background: none;
   border: 1px solid transparent;
 }
-.tab:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+.tab:hover { color: var(--accent-light); background: rgba(var(--ar), 0.08); }
 .tab.active {
   color: var(--accent-light);
   background: rgba(var(--ar), 0.12);
@@ -342,7 +353,7 @@ label.field-label {
   background: none;
   color: var(--text);
 }
-.queue-item:hover { background: rgba(255, 255, 255, 0.05); }
+.queue-item:hover { background: rgba(var(--ar), 0.08); }
 .queue-item.selected {
   background: rgba(var(--ar), 0.1);
   border-color: rgba(var(--ar), 0.3);
@@ -527,7 +538,7 @@ label.field-label {
   color: var(--text);
 }
 .timeline-entry summary::-webkit-details-marker { display: none; }
-.timeline-entry summary:hover { color: var(--text-bright); }
+.timeline-entry summary:hover { color: var(--accent-light); }
 .timeline-entry .meta { color: var(--text-faint); font-size: 11.5px; }
 .timeline-entry .expanded {
   margin-top: 6px;

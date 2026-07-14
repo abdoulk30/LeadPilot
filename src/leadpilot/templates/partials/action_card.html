@@ -68,7 +68,7 @@
     {# ---------------- State row ---------------- #}
     {% if c.stage in ("awaiting_rep_approval", "approved") %}
       <div class="btn-row">
-        <button class="btn-approve"
+        <button class="btn-approve{% if urgent %} urgent-approve{% endif %}"
                 hx-post="/ui/actions/{{ c.event_id }}/approve"
                 hx-target="#card-{{ c.event_id }}" hx-swap="outerHTML">
           {% if c.channel == "call" %}Approve &amp; copy number

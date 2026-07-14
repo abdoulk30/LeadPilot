@@ -1,17 +1,19 @@
 {# Center pane: lead header + stacked action cards (§4). Also swaps the
    context rail out-of-band so both panes stay in sync on selection. #}
 <div>
-  <div style="display:flex; align-items:baseline; gap:10px; margin-bottom: 4px;">
-    <h2 style="font-size: 17px;">{{ lead.display_name or "(no name)" }}</h2>
+  {% set initials = (lead.display_name or "?").split() %}
+  <div style="display:flex; align-items:center; gap:10px; margin-bottom: 4px;">
+    <div class="avatar">{{ (initials[0][:1] ~ (initials[1][:1] if initials|length > 1 else "")) | upper }}</div>
+    <h2 style="font-size: 16px;">{{ lead.display_name or "(no name)" }}</h2>
     {% if lead.company %}<span class="dim">{{ lead.company }}</span>{% endif %}
-    <span class="rank-pill rank-{{ rank }}">Rank {{ rank }}</span>
+    <span class="rank-pill rank-{{ rank }}">R{{ rank }}</span>
   </div>
-  <div class="dim" style="font-size: 12.5px; margin-bottom: 2px;">
+  <div class="dim" style="font-size: 12px; margin: 0 0 4px 44px;">
     {% if lead.primary_phone %}{{ lead.primary_phone }}{% endif %}
     {% if lead.primary_phone and lead.primary_email %} · {% endif %}
     {% if lead.primary_email %}{{ lead.primary_email }}{% endif %}
   </div>
-  <div class="faint" style="font-size: 12px; margin-bottom: 16px;">
+  <div class="faint" style="font-size: 11px; margin: 0 0 16px 44px;">
     Why this rank: {{ rank_reason }}
   </div>
 

@@ -30,8 +30,8 @@
   --ar: 59, 130, 246;
   --accent-light: #9cc3f9;
 
-  --pane-left: 200px;
-  --pane-right: 250px;
+  --pane-left: 240px;
+  --pane-right: 280px;
 }
 
 [data-theme="deep-blue"]    { --ar: 30, 79, 163;   --accent-light: #7fa4dd; }
@@ -52,36 +52,57 @@ html, body {
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  /* Artifact §2: Inter first. Not a webfont import in the artifact
+     either — system fallback when Inter isn't installed. */
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, sans-serif;
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
 
 /* ---- Base layer (mandatory — glass doesn't work without it) ------- */
-/* Marc's glass system (2026-07-14): page background stays #0c0d10
-   untinted; a fixed accent-tinted pattern layer behind all panels.
-   Default is the two-orb layer at Marc's positions/alphas, with the
-   radii made viewport-relative (approved 2026-07-14) so the orbs
-   cover the same proportion of the frame at any window size —
-   280px/320px on the original mockup artboard ≈ 30vw/34vw.
-   Alternate patterns below are rep personalization on top of the
-   same system: base never tinted, pattern layer accent-derived. */
+/* Ported 1:1 from the design artifact
+   (leadpilot-docs/design/mockups/leadpilot_glass_reference.html §2):
+   near-black neutral base (never theme-tinted), viewport-relative
+   accent orbs (percentages, not px — the artifact's own note: "THIS
+   was the main bug at 2500px"), plus a luminance ramp, a neutral
+   white orb, and a corner vignette for depth.
+
+   Split across two fixed layers so the rep-selectable pattern only
+   swaps the accent part: ::before = invariant depth (ramp + neutral
+   orb + vignette), .bg-layer itself = the accent layer (orbs default;
+   grid/weave/corner alternates; none = depth only). */
 
 .bg-layer {
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background:
-    radial-gradient(circle 30vw at 15% 20%, rgba(var(--ar), 0.20), transparent 70%),
-    radial-gradient(circle 34vw at 88% 80%, rgba(var(--ar), 0.14), transparent 70%);
 }
 
-[data-pattern="grid"] .bg-layer {
+.bg-layer::before {
+  content: "";
+  position: absolute;
+  inset: 0;
   background-image:
-    radial-gradient(circle 40vw at 50% 0%, rgba(var(--ar), 0.16), transparent 70%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025) 0%, rgba(255, 255, 255, 0) 30%),
+    radial-gradient(ellipse 30% 25% at 65% 5%, rgba(255, 255, 255, 0.045), transparent 70%),
+    radial-gradient(ellipse 120% 100% at 50% 40%, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.5) 100%);
+}
+
+.bg-layer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(ellipse 45% 38% at 12% 15%, rgba(var(--ar), 0.20), transparent 70%),
+    radial-gradient(ellipse 50% 42% at 90% 85%, rgba(var(--ar), 0.13), transparent 70%);
+}
+
+[data-pattern="grid"] .bg-layer::after {
+  background-image:
+    radial-gradient(ellipse 45% 38% at 50% 0%, rgba(var(--ar), 0.16), transparent 70%),
     linear-gradient(rgba(var(--ar), 0.10) 1px, transparent 1px),
     linear-gradient(90deg, rgba(var(--ar), 0.10) 1px, transparent 1px);
   background-size: auto, 42px 42px, 42px 42px;
@@ -89,20 +110,20 @@ body {
   -webkit-mask-image: radial-gradient(120% 90% at 50% 20%, #000 30%, rgba(0, 0, 0, 0.3) 70%, transparent 100%);
 }
 
-[data-pattern="weave"] .bg-layer {
-  background:
-    radial-gradient(circle 40vw at 25% 0%, rgba(var(--ar), 0.14), transparent 70%),
+[data-pattern="weave"] .bg-layer::after {
+  background-image:
+    radial-gradient(ellipse 45% 38% at 25% 0%, rgba(var(--ar), 0.14), transparent 70%),
     repeating-linear-gradient(45deg,  rgba(var(--ar), 0.08) 0 1px, transparent 1px 26px),
     repeating-linear-gradient(-45deg, rgba(var(--ar), 0.08) 0 1px, transparent 1px 26px);
 }
 
-[data-pattern="corner"] .bg-layer {
-  background:
-    radial-gradient(circle 55vw at 100% 0%, rgba(var(--ar), 0.30), transparent 72%),
-    radial-gradient(circle 30vw at 0% 100%, rgba(var(--ar), 0.10), transparent 70%);
+[data-pattern="corner"] .bg-layer::after {
+  background-image:
+    radial-gradient(ellipse 60% 55% at 100% 0%, rgba(var(--ar), 0.28), transparent 72%),
+    radial-gradient(ellipse 32% 28% at 0% 100%, rgba(var(--ar), 0.10), transparent 70%);
 }
 
-[data-pattern="none"] .bg-layer { background: none; }
+[data-pattern="none"] .bg-layer::after { background-image: none; }
 
 .app-root {
   position: relative;
@@ -114,30 +135,35 @@ body {
 
 /* ---- Glass surfaces (§1) ---- */
 
+/* Artifact §4: the inset top-sheen — "This is what makes glass read
+   as glass at full size." */
 .panel {
   background: var(--panel);
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-panel);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .card {
   background: var(--card);
   border: 1px solid var(--hairline-faint);
   border-radius: var(--radius-panel);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 /* ---- Type ---- */
 
 h1, h2, h3 { color: var(--text-bright); font-weight: 600; margin: 0; }
 
+/* Artifact §5 micro-labels. */
 .micro {
-  font-size: 11px;
+  font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.15em;
   color: var(--text-faint);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .dim   { color: var(--text-dim); }
@@ -153,11 +179,11 @@ button, .btn {
   font-size: 13px;
   color: var(--text);
   background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--hairline);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-control);
   padding: 7px 14px;
   cursor: pointer;
-  transition: transform 80ms ease, background 120ms ease, box-shadow 180ms ease;
+  transition: transform 0.08s ease, box-shadow 0.18s ease, background 0.15s ease;
 }
 
 /* Hover/highlight states are accent-tinted (Marc, 2026-07-14 —
@@ -184,7 +210,15 @@ button:disabled {
   color: var(--accent-light);
   font-weight: 600;
 }
-.btn-approve:hover { background: rgba(var(--ar), 0.26); border-color: rgba(var(--ar), 0.6); }
+.btn-approve:hover { background: rgba(var(--ar), 0.28); border-color: rgba(var(--ar), 0.6); }
+
+/* Urgent handoff approve — amber-tinted, same anatomy (artifact card 3). */
+.btn-approve.urgent-approve {
+  background: rgba(240, 165, 107, 0.16);
+  border-color: rgba(240, 165, 107, 0.5);
+  color: #f4bd8d;
+}
+.btn-approve.urgent-approve:hover { background: rgba(240, 165, 107, 0.24); }
 
 /* Semantic-red reject keeps its own hover — accent tint on a
    destructive control would misread (semantic colors never re-theme). */
@@ -199,11 +233,11 @@ button:disabled {
   box-shadow: 0 0 0 1px rgba(var(--ar), 0.7), 0 0 12px rgba(var(--ar), 0.3);
 }
 
-/* Persistent confirmed state (§5/§6c) */
+/* Persistent confirmed state (§5/§6c; artifact button.done) */
 .btn-confirmed {
   color: var(--success);
-  background: rgba(95, 214, 162, 0.08);
-  border-color: rgba(95, 214, 162, 0.3);
+  background: rgba(95, 214, 162, 0.15);
+  border-color: rgba(95, 214, 162, 0.4);
   cursor: default;
   font-weight: 600;
 }
@@ -213,17 +247,22 @@ input[type="text"], input[type="email"], input[type="password"], textarea, selec
   font: inherit;
   font-size: 13px;
   color: var(--text);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--hairline);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-control);
-  padding: 8px 10px;
+  padding: 8px 12px;
   width: 100%;
+}
+
+input[type="text"], input[type="email"], input[type="password"], select {
+  height: 36px;
+  padding: 0 12px;
 }
 
 input:focus, textarea:focus, select:focus {
   outline: none;
   border-color: rgba(var(--ar), 0.6);
-  box-shadow: 0 0 0 1px rgba(var(--ar), 0.35);
+  box-shadow: 0 0 0 3px rgba(var(--ar), 0.15);
 }
 
 textarea { resize: vertical; min-height: 72px; }
@@ -260,38 +299,51 @@ label.field-label {
   margin-top: 10px;
 }
 
-/* ---- Three-pane workspace (§4) ---- */
+/* ---- Three-pane workspace (§4; artifact §3: "density is a token
+   too" — 1560px hard ceiling, centered; panels stretch to the
+   workspace height, which reads correctly now that the base layer
+   has ramp/vignette depth behind the glass) ---- */
 
 .topbar {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--hairline-faint);
+  gap: 24px;
+  padding: 14px 28px;
+  max-width: 1560px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .topbar .brand {
   font-size: 15px;
   font-weight: 700;
   color: var(--text-bright);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
 }
 
-.topbar .tabs { display: flex; gap: 4px; }
+/* Segmented tab control (artifact top bar). */
+.topbar .tabs {
+  display: flex;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 3px;
+}
 
 .tab {
   padding: 5px 12px;
   border-radius: var(--radius-control);
   font-size: 13px;
   color: var(--text-dim);
-  background: none;
-  border: 1px solid transparent;
+  background: transparent;
+  border: none;
 }
 .tab:hover { color: var(--accent-light); background: rgba(var(--ar), 0.08); }
 .tab.active {
-  color: var(--accent-light);
-  background: rgba(var(--ar), 0.12);
-  border-color: rgba(var(--ar), 0.25);
+  color: var(--text-bright);
+  background: rgba(var(--ar), 0.2);
 }
 
 .topbar .spacer { flex: 1; }
@@ -299,32 +351,25 @@ label.field-label {
 .workspace {
   flex: 1;
   display: grid;
-  grid-template-columns: var(--pane-left) 6px minmax(0, 1fr) 6px var(--pane-right);
+  grid-template-columns: var(--pane-left) 8px minmax(0, 1fr) 8px var(--pane-right);
   gap: 0;
-  padding: 12px;
-  min-height: 0;
-  /* Panels hug their content instead of stretching to full viewport
-     height — the base layer's orbs need exposed background around the
-     glass to read as glass, and a full-height panel below a single
-     card is exactly the "large empty void" the glass system bans. */
-  align-items: start;
+  max-width: 1560px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 28px 28px;
+  min-height: calc(100vh - 90px);
 }
 
 .pane {
   overflow-y: auto;
   min-height: 0;
-  max-height: 100%;
   padding: 16px;
 }
 
-/* Handles keep the full column height so there's always something to
-   grab, even next to a short panel. */
-.resize-handle { align-self: stretch; }
-
-/* Center content column: capped at ~900px so cards never sprawl into
-   large empty voids on wide screens. */
+/* Center content column ceiling (artifact .pane-main max-width). */
 #center-pane > div {
-  max-width: 900px;
+  max-width: 860px;
   margin-left: auto;
   margin-right: auto;
 }
@@ -355,12 +400,12 @@ label.field-label {
 }
 .queue-item:hover { background: rgba(var(--ar), 0.08); }
 .queue-item.selected {
-  background: rgba(var(--ar), 0.1);
-  border-color: rgba(var(--ar), 0.3);
+  background: rgba(var(--ar), 0.12);
+  border-color: rgba(var(--ar), 0.35);
 }
 
 .queue-item .name {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-bright);
   font-size: 13px;
   display: flex;
@@ -377,17 +422,24 @@ label.field-label {
   text-overflow: ellipsis;
 }
 
+/* Pills (artifact §7): rank colors are accent/neutral/neutral —
+   semantic colors stay reserved for meaning (urgent amber, success
+   green), not rank. */
 .rank-pill {
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  padding: 1px 6px;
-  border-radius: 999px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: 6px;
   flex-shrink: 0;
 }
-.rank-1 { color: var(--accent-light); background: rgba(var(--ar), 0.18); }
-.rank-2 { color: var(--success); background: rgba(95, 214, 162, 0.14); }
-.rank-3 { color: var(--warning); background: rgba(240, 165, 107, 0.14); }
+.rank-1 {
+  color: var(--accent-light);
+  background: rgba(var(--ar), 0.15);
+  border: 1px solid rgba(var(--ar), 0.35);
+}
+.rank-2 { color: var(--text-dim); background: rgba(255, 255, 255, 0.06); }
+.rank-3 { color: var(--text-faint); background: rgba(255, 255, 255, 0.04); }
 
 .flag-badge {
   font-size: 10px;
@@ -413,6 +465,7 @@ label.field-label {
 
 .action-card { padding: 14px 16px; margin-bottom: 12px; }
 
+/* Card channel headers (artifact §5): accent-light, not faint. */
 .card-head {
   display: flex;
   align-items: center;
@@ -420,7 +473,12 @@ label.field-label {
   margin-bottom: 8px;
 }
 
-.card-head .micro { color: var(--text-faint); }
+.card-head .micro {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--accent-light);
+  font-weight: 500;
+}
 
 .draft-body {
   white-space: pre-wrap;
@@ -461,28 +519,39 @@ label.field-label {
    approval anatomy. Urgency changes prominence, never the gate. */
 .handoff-badge {
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-weight: 500;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  padding: 1px 7px;
-  border-radius: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
   border: 1px solid var(--hairline);
   color: var(--text-dim);
 }
 .handoff-badge.urgent {
   color: var(--warning);
-  border-color: rgba(240, 165, 107, 0.5);
+  background: rgba(240, 165, 107, 0.12);
+  border-color: rgba(240, 165, 107, 0.35);
 }
-.action-card.urgent { border-color: rgba(240, 165, 107, 0.45); }
+.action-card.urgent { border-color: rgba(240, 165, 107, 0.35); }
 .action-card.urgent .card-head .micro { color: var(--warning); }
 
 .recipients-note { font-size: 12px; color: var(--text-faint); margin-top: 8px; }
 
 /* ---- Sheet diff (§6e) ---- */
 
+/* Diff rows (artifact §8): hairline-separated rows, uppercase labels. */
 .diff-table { width: 100%; font-size: 13px; border-collapse: collapse; }
-.diff-table td { padding: 5px 8px; vertical-align: top; }
-.diff-table .lbl { color: var(--text-faint); width: 110px; }
+.diff-table tr { border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.diff-table tr:last-child { border-bottom: none; }
+.diff-table td { padding: 6px 8px 6px 0; vertical-align: top; }
+.diff-table .lbl {
+  color: var(--text-faint);
+  width: 110px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding-top: 8px;
+}
 .diff-old { color: var(--danger); text-decoration: line-through; }
 .diff-new { color: var(--success); }
 
@@ -615,11 +684,12 @@ label.field-label {
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  background: rgba(var(--ar), 0.25);
+  background: rgba(var(--ar), 0.15);
+  border: 1px solid rgba(var(--ar), 0.35);
   color: var(--accent-light);
   display: grid;
   place-items: center;
-  font-weight: 700;
+  font-weight: 600;
   flex-shrink: 0;
 }
 

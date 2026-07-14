@@ -29,27 +29,53 @@ nontrivial change:
 
 ## Current build state
 
-Step 1 (foundation) is merged to `main`. Step 2 (the actual agent
-tools), split between Marc and Abdoul (Decision 032), is in progress
-on `abdouls-branch` (Abdoul's half — Group A). Done so far:
-`rep_google_credentials` (Decision 026, refresh tokens encrypted via
-`crypto.py`, Decision 029), the full `/auth/google/connect|callback|
-access-token|grant-file` flow, `GoogleSheetsConnector` reworked for
-per-rep OAuth, `agent_run_locks`'s per-rep mutex rework (Decision
-027/032), the `fetch_all_leads` tool, the tool-registration scaffold
-(`tools/base.py`/`registry.py`, Decision 031), and the `/dev/picker-test`
-harness. Not yet built: `fetch_ad_hoc_sheet`, `update_lead_sheet`,
-`verify_drive_contents`, `log_call_outcome` (Abdoul's remaining 4),
-plus all 6 of Marc's tools (`get_contact_history`, `initiate_lead_call`,
-`send_lead_text`, `send_lead_email`, `dispatch_slack_handoff`,
-`search_communications`) and the prompt-injection validation layer.
+Step 1 (foundation) and Step 2 (all 11 agent tools, split between
+Marc and Abdoul per Decision 032) are both **merged to `main`** as of
+2026-07-13 (commit `41a7bd9` — `abdouls-branch` + `marc-step2-split`
+combined; one real conflict, confined to `google_oauth.py`'s docstring
+and `SCOPES` list, resolved). Group A (Abdoul): `fetch_all_leads`,
+`fetch_ad_hoc_sheet`, `update_lead_sheet`, `verify_drive_contents`,
+`log_call_outcome`, plus `rep_google_credentials` (Decision 026,
+refresh tokens encrypted via `crypto.py`, Decision 029), the full
+`/auth/google/connect|callback|access-token|grant-file` flow,
+`GoogleSheetsConnector` reworked for per-rep OAuth,
+`agent_run_locks`'s per-rep mutex rework (Decision 027/032), the
+tool-registration scaffold (`tools/base.py`/`registry.py`, Decision
+031), and the `/dev/picker-test` harness (now also supports granting a
+Drive folder, not just a sheet). Group B (Marc): `get_contact_history`,
+`initiate_lead_call`, `send_lead_text`, `send_lead_email`,
+`dispatch_slack_handoff`, `search_communications`. Not yet built: the
+prompt-injection validation layer, Step 3 (the interface).
 
-**The full real OAuth flow is now verified live, end to end** — not
-just designed on paper. `pytest` shows **83 passed, 0 skipped**
-(previously several `test_google_sheets_connector_live.py` and
-`test_fetch_all_leads.py` tests auto-skipped pending this). Two real
-bugs were caught getting here, both worth knowing before touching this
-code:
+**Post-merge fix required and applied (2026-07-13, commit `3dc3a52`):**
+Marc's Decision 034 (same-cell concurrent-write protection) changed
+`GoogleSheetsConnector.commit_field_write`'s signature to require a new
+`expected_current` keyword argument with no default. `update_lead_sheet.py`
+wasn't updated to match — it would have raised `TypeError` on any real
+write, masked in tests because `tests/fakes.py`'s fake connector was
+also stale. Fixed: `update_lead_sheet` now persists the reviewed
+`current` value at staging time and passes it through at execute time;
+`StaleWriteError`/`ConcurrentWriteError` propagate distinctly rather
+than getting wrapped into a generic failure; `tests/fakes.py` now
+enforces the same staleness check the real connector does. See
+`leadpilot-docs/testing/known-issues-log.md` Issue 006 and
+`leadpilot-docs/decisions/README.md` Decision 034 for full detail.
+
+**Full suite on the merged `main`: 182 passed.** The only failures (9)
+are live OAuth tests hitting `invalid_scope` — expected, not a code
+bug: Decision 033/034 widened `SCOPES` (added `drive.readonly`,
+`gmail.send`, `gmail.readonly`), so any rep who connected under an
+older scope list (including the rep used for local dev testing) must
+redo the "Connect Google Account" flow before those tests will pass
+again. `alembic heads` shows a single unified head (`fed4e55c9f58`) —
+Abdoul's `agent_run_locks` migration (`cd645f125bf4`) and Marc's
+`sheet_cell_locks` migration (`fed4e55c9f58`) turned out to be sibling
+migrations off the same prior head, and chained cleanly with no manual
+`alembic merge` needed once both branches landed together.
+
+**The full real OAuth flow is verified live, end to end** — not just
+designed on paper. Two real bugs were caught getting here, both worth
+knowing before touching this code:
 
 1. **PKCE code_verifier was being discarded.** `google-auth-oauthlib`'s
    `Flow` generates a PKCE `code_verifier` per instance inside

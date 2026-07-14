@@ -10,13 +10,15 @@ security/threat-model.md:
    logic decides the actual cooldown window, this table just holds the
    timestamp.
 
-2. AgentRunLock — a singleton mutex so the hourly Cron Job can't run
-   twice concurrently (e.g. a slow run still executing when the next
-   scheduled trigger fires). Not explicitly named in the PRD, but
-   implied by "atomic state locking" and needed for the same reason
-   the per-lead lock is: without it, two overlapping batch runs could
-   both draft outreach for the same lead before either one's lock
-   check would catch the other.
+2. AgentRunLock — a per-rep mutex (reworked from a singleton, Decision
+   027/032) so the same rep's hourly batch run can't overlap with
+   itself (e.g. a slow run still executing when the next scheduled
+   trigger fires) — while rep A's run and rep B's run proceed fully
+   independently, since the batch job now iterates once per connected
+   rep rather than running once globally (Decision 027). Without this,
+   two overlapping runs for the same rep could both draft outreach for
+   the same lead before either one's lead-action lock check would
+   catch the other.
 
 3. SheetCellLock — added Decision 034, closing a real race condition
    found in `GoogleSheetsConnector.commit_field_write`: two reps
@@ -57,10 +59,12 @@ class LeadActionLock(Base):
 class AgentRunLock(Base):
     __tablename__ = "agent_run_locks"
 
-    # Fixed id — one row per named lock. Only "hourly_batch_run" exists
-    # today; the column exists so a second named lock could be added
-    # later without a schema change.
-    id: Mapped[str] = mapped_column(String, primary_key=True)
+    # rep_id, not a fixed string id (Decision 027/032's per-rep rework)
+    # — one row per rep who's ever had a batch run attempt, rather than
+    # one global row. Two reps' runs never contend for the same row.
+    rep_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("reps.rep_id"), primary_key=True
+    )
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     locked_by: Mapped[str | None] = mapped_column(String, nullable=True)
 

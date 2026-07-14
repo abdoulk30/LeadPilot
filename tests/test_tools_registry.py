@@ -19,9 +19,23 @@ TOOLS_DIR = Path(base.__file__).parent
 
 @pytest.fixture(autouse=True)
 def _clean_registry():
+    """Snapshot-and-restore, not just clear-on-both-sides. By the time
+    any test runs, every real tools/*.py module has already been
+    imported (each test_<tool>.py file imports it at module scope,
+    which pytest resolves during collection) and thus already
+    registered. reset_registry_for_tests() clearing _REGISTRY doesn't
+    make those modules re-import — load_all_tools() would see them
+    already in sys.modules and skip re-running their @tool(...)
+    decorators — so without restoring the snapshot here, every real
+    tool would silently vanish from the registry for the rest of the
+    test session the first time this file's tests run.
+    """
+    snapshot = all_tools()
     reset_registry_for_tests()
     yield
     reset_registry_for_tests()
+    for spec in snapshot.values():
+        base._REGISTRY[spec.name] = spec
 
 
 def test_tool_decorator_registers_by_name():

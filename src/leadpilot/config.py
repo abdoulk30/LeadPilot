@@ -25,6 +25,11 @@ class Settings(BaseSettings):
 
     rep_auth_session_secret: str = ""
 
+    # "development" locally, whatever Render sets in prod. Used to gate
+    # dev-only routes (e.g. the Picker test harness) so they can never
+    # be reachable outside local dev, regardless of auth.
+    environment: str = "development"
+
     # Decision 026 (leadpilot-docs, 2026-07-11) supersedes Decision 024:
     # Sheets/Drive/Gmail all authenticate per-rep via this OAuth client
     # (drive.file scope + Google Picker), not a service account. Not

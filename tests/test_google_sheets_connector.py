@@ -18,8 +18,11 @@ import pytest
 
 from leadpilot import auth, google_credentials, locks
 from leadpilot.connectors.base import ConcurrentWriteError, StaleWriteError
+from leadpilot.connectors.google_drive import SPREADSHEET_MIME_TYPE
 from leadpilot.connectors.google_sheets import GoogleSheetsConnector
 from leadpilot.db import SessionLocal
+
+from fakes import FakeGoogleDriveClient
 
 
 class _FakeResponse:
@@ -78,7 +81,8 @@ def _connector(session, source_id: str, header=None, rows=None):
     rows = rows or {"2": ["Jane Lead", "555-1234", "jane@acme.com", "Acme", "New"]}
     rep_id = _make_connected_rep(session, source_id)
     fake_service = FakeSheetsService(header, rows)
-    connector = GoogleSheetsConnector(session, rep_id, sheets_service=fake_service)
+    fake_drive = FakeGoogleDriveClient({source_id: SPREADSHEET_MIME_TYPE})
+    connector = GoogleSheetsConnector(session, rep_id, sheets_service=fake_service, drive_client=fake_drive)
     return connector, fake_service
 
 
@@ -231,10 +235,12 @@ def test_two_concurrent_commits_to_the_same_cell_only_one_wins():
     errors: list[Exception] = []
     results_lock = threading.Lock()
 
+    fake_drive = FakeGoogleDriveClient({source_id: SPREADSHEET_MIME_TYPE})
+
     def attempt(proposed_value: str):
         session = SessionLocal()
         try:
-            connector = GoogleSheetsConnector(session, rep_id, sheets_service=fake_service)
+            connector = GoogleSheetsConnector(session, rep_id, sheets_service=fake_service, drive_client=fake_drive)
             try:
                 connector.commit_field_write(
                     source_id, row_ref="2", field_name="status", value=proposed_value, expected_current="New"
@@ -266,8 +272,21 @@ def test_two_concurrent_commits_to_the_same_cell_only_one_wins():
     assert fake_service.rows["2"][4] in {f"value-{i}" for i in range(10)}
 
     cleanup = SessionLocal()
+    from leadpilot.models.rep import Rep
+    from leadpilot.models.rep_google_credential import RepGoogleCredential
     from leadpilot.models.run_lock import SheetCellLock
 
     cleanup.query(SheetCellLock).filter_by(cell_key=f"{source_id}:2:status").delete()
+    # This test uses real committed SessionLocal() sessions (not the
+    # rollback-wrapped db_session fixture) for genuine Postgres-level
+    # concurrency, so the rep it creates via _make_connected_rep
+    # doesn't get auto-cleaned by fixture teardown like everywhere
+    # else — left behind, it falsely satisfies
+    # test_google_sheets_connector_live.py's "is there a real
+    # connected rep?" check for every test file that runs after this
+    # one, since its stored "fake-refresh-token" credential isn't a
+    # real Google refresh token.
+    cleanup.query(RepGoogleCredential).filter_by(rep_id=rep_id).delete()
+    cleanup.query(Rep).filter_by(rep_id=rep_id).delete()
     cleanup.commit()
     cleanup.close()

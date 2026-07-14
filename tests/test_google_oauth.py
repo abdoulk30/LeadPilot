@@ -51,6 +51,22 @@ def logged_in_client():
     cleanup.close()
 
 
+def test_build_authorization_url_returns_a_usable_signed_verifier():
+    """Direct test of the module function, below the HTTP layer —
+    proves build_authorization_url's returned verifier actually
+    unsigns back to a real PKCE code_verifier, not just that a cookie
+    gets set somewhere.
+    """
+    from leadpilot import google_oauth
+
+    url, signed_verifier = google_oauth.build_authorization_url(state="test-state")
+    assert "code_challenge=" in url
+
+    verifier = google_oauth._unsign_code_verifier(signed_verifier)
+    assert verifier is not None
+    assert len(verifier) == 128  # google-auth-oauthlib's PKCE verifier length
+
+
 def test_connect_requires_login():
     client = TestClient(app)
     response = client.get("/auth/google/connect", follow_redirects=False)
@@ -65,6 +81,19 @@ def test_connect_redirects_to_google_and_sets_state_cookie(logged_in_client):
     assert "prompt=consent" in response.headers["location"]
     assert "scope=" in response.headers["location"] and "drive.file" in response.headers["location"]
     assert logged_in_client.cookies.get("leadpilot_google_oauth_state") is not None
+
+
+def test_connect_sets_pkce_code_verifier_cookie(logged_in_client):
+    """Regression test for the real bug this caught live: google-auth-
+    oauthlib generates a PKCE code_verifier per Flow instance and
+    google-auth-oauthlib's Flow needs it back at token-exchange time —
+    without carrying it across the two separate requests the same way
+    state is carried, Google rejects the exchange with
+    "(invalid_grant) Missing code verifier."
+    """
+    response = logged_in_client.get("/auth/google/connect", follow_redirects=False)
+    assert "code_challenge=" in response.headers["location"]
+    assert logged_in_client.cookies.get("leadpilot_google_oauth_code_verifier") is not None
 
 
 def test_callback_requires_login():
@@ -94,6 +123,21 @@ def test_callback_rejects_mismatched_state(logged_in_client):
         "/auth/google/callback", params={"code": "fake-code", "state": "attacker-supplied-state"}
     )
     assert response.status_code == 400
+
+
+def test_callback_rejects_missing_code_verifier_cookie(logged_in_client):
+    """Valid state, but the PKCE code_verifier cookie is gone (e.g.
+    expired, or cleared) — must be rejected explicitly, not silently
+    passed through to Google only to fail there with a confusing
+    "Missing code verifier" error.
+    """
+    logged_in_client.get("/auth/google/connect", follow_redirects=False)
+    real_state = logged_in_client.cookies.get("leadpilot_google_oauth_state")
+    del logged_in_client.cookies["leadpilot_google_oauth_code_verifier"]
+
+    response = logged_in_client.get("/auth/google/callback", params={"code": "fake-code", "state": real_state})
+    assert response.status_code == 400
+    assert "verifier" in response.json()["detail"].lower()
 
 
 def test_access_token_requires_login():

@@ -9,11 +9,12 @@ AUTHENTICATION GUARD from PRD v1.04's system prompt.
 from collections.abc import Generator
 
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from leadpilot import auth, google_credentials, google_oauth
+from leadpilot.config import settings
 from leadpilot.db import SessionLocal
 from leadpilot.models.rep import Rep
 
@@ -96,6 +97,7 @@ def whoami(rep: Rep = Depends(require_rep)):
 
 
 GOOGLE_OAUTH_STATE_COOKIE = "leadpilot_google_oauth_state"
+GOOGLE_OAUTH_CODE_VERIFIER_COOKIE = "leadpilot_google_oauth_code_verifier"
 
 
 @app.get("/auth/google/connect")
@@ -106,11 +108,22 @@ def google_connect(response: Response, rep: Rep = Depends(require_rep)):
     itself (see Decision 023: rep login stays email+password).
     """
     state = google_oauth.generate_state()
-    auth_url = google_oauth.build_authorization_url(state)
+    auth_url, signed_code_verifier = google_oauth.build_authorization_url(state)
     redirect = RedirectResponse(url=auth_url)
     redirect.set_cookie(
         key=GOOGLE_OAUTH_STATE_COOKIE,
         value=state,
+        httponly=True,
+        samesite="lax",
+        max_age=google_oauth.STATE_MAX_AGE_SECONDS,
+    )
+    # PKCE — google-auth-oauthlib generates a code_verifier per Flow
+    # instance and needs it back at token-exchange time; /callback is a
+    # separate request (likely a separate Flow object entirely), so it
+    # has to be carried across the same way `state` already is.
+    redirect.set_cookie(
+        key=GOOGLE_OAUTH_CODE_VERIFIER_COOKIE,
+        value=signed_code_verifier,
         httponly=True,
         samesite="lax",
         max_age=google_oauth.STATE_MAX_AGE_SECONDS,
@@ -124,6 +137,7 @@ def google_callback(
     state: str,
     response: Response,
     leadpilot_google_oauth_state: str | None = Cookie(default=None),
+    leadpilot_google_oauth_code_verifier: str | None = Cookie(default=None),
     rep: Rep = Depends(require_rep),
     db: Session = Depends(get_db),
 ):
@@ -131,8 +145,12 @@ def google_callback(
         raise HTTPException(status_code=400, detail="Invalid or expired OAuth state — try connecting again")
     response.delete_cookie(GOOGLE_OAUTH_STATE_COOKIE)
 
+    if not leadpilot_google_oauth_code_verifier:
+        raise HTTPException(status_code=400, detail="Missing PKCE code verifier — try connecting again")
+    response.delete_cookie(GOOGLE_OAUTH_CODE_VERIFIER_COOKIE)
+
     try:
-        refresh_token = google_oauth.exchange_code_for_refresh_token(code)
+        refresh_token = google_oauth.exchange_code_for_refresh_token(code, leadpilot_google_oauth_code_verifier)
     except Exception as e:
         # Real failure from Google's token endpoint (bad/expired code,
         # revoked client, etc.) — surface it rather than pretending
@@ -155,6 +173,117 @@ def google_access_token(rep: Rep = Depends(require_rep), db: Session = Depends(g
     if token is None:
         raise HTTPException(status_code=404, detail="Rep has not connected a Google account")
     return {"access_token": token}
+
+
+@app.get("/dev/picker-test", response_class=HTMLResponse)
+def picker_test_harness():
+    """NOT Step 3's real UI — a bare page so Step 2 tools (fetch_all_leads
+    etc.) can be tested against real Picker-granted access, since
+    Google's drive.file scope only actually grants access to a file
+    once it's been selected through the real Picker widget (or created
+    by the app) — there's no way to fake that server-side. Gated behind
+    ENVIRONMENT so it's never reachable outside local dev.
+    """
+    if settings.environment != "development":
+        raise HTTPException(status_code=404)
+
+    # Picker's setAppId — the numeric Cloud project number, which is
+    # the segment before the first "-" in a Google OAuth client ID
+    # (e.g. "56917149985" in "56917149985-abc...apps.googleusercontent.com").
+    # Required specifically for drive.file scope: without it, Picker
+    # still shows files and fires a real "picked" callback, but Google
+    # never actually registers the per-file grant server-side against
+    # this OAuth client — the selection looks like it worked, but the
+    # access token still can't read the file afterward. This was a
+    # real bug caught live, not a hypothetical.
+    app_id = settings.google_oauth_client_id.split("-")[0]
+
+    return f"""<!DOCTYPE html>
+<html>
+<head><title>LeadPilot — Picker test harness (dev only)</title></head>
+<body>
+<h1>Google Picker test harness</h1>
+<p>Not the real Step 3 UI — exists so Step 2 tools can be tested against real Picker-granted files.</p>
+<p>Log in first via <a href="/docs">/docs</a> (POST /login), then come back to this page.</p>
+<button id="connect">1. Connect Google Account</button>
+<button id="pick" disabled>2. Pick a sheet</button>
+<button id="pick-folder" disabled>3. Pick a Drive folder (for verify_drive_contents)</button>
+<pre id="log" style="white-space: pre-wrap; background: #eee; padding: 1em;"></pre>
+<script src="https://apis.google.com/js/api.js"></script>
+<script>
+  const log = (msg) => {{ document.getElementById('log').textContent += msg + '\\n'; }};
+
+  document.getElementById('connect').onclick = () => {{
+    window.location.href = '/auth/google/connect';
+  }};
+
+  gapi.load('picker', () => {{
+    document.getElementById('pick').disabled = false;
+    document.getElementById('pick-folder').disabled = false;
+    log('Picker API loaded.');
+  }});
+
+  const grantPicked = async (data) => {{
+    if (data.action === google.picker.Action.PICKED) {{
+      const fileId = data.docs[0].id;
+      log('Picked: ' + data.docs[0].name + ' (' + fileId + ')');
+      const grantResp = await fetch('/auth/google/grant-file', {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{ file_id: fileId }}),
+      }});
+      const result = await grantResp.json();
+      log('Granted. This rep can now access: ' + JSON.stringify(result.granted_file_ids));
+    }}
+  }};
+
+  document.getElementById('pick').onclick = async () => {{
+    const resp = await fetch('/auth/google/access-token');
+    if (!resp.ok) {{
+      log('Not connected yet (HTTP ' + resp.status + ') — click "Connect Google Account" first.');
+      return;
+    }}
+    const {{ access_token }} = await resp.json();
+    log('Got access token, opening Picker...');
+
+    const picker = new google.picker.PickerBuilder()
+      .addView(google.picker.ViewId.SPREADSHEETS)
+      .setOAuthToken(access_token)
+      .setDeveloperKey('{settings.google_picker_api_key}')
+      .setAppId('{app_id}')
+      .setCallback(grantPicked)
+      .build();
+    picker.setVisible(true);
+  }};
+
+  document.getElementById('pick-folder').onclick = async () => {{
+    const resp = await fetch('/auth/google/access-token');
+    if (!resp.ok) {{
+      log('Not connected yet (HTTP ' + resp.status + ') — click "Connect Google Account" first.');
+      return;
+    }}
+    const {{ access_token }} = await resp.json();
+    log('Got access token, opening Picker (folder mode)...');
+
+    // setSelectFolderEnabled makes the folder itself the pickable item
+    // (default FOLDERS view only lets you navigate into folders, not
+    // select one) — needed so verify_drive_contents has a folder_id
+    // it's actually been granted, not just a sheet_id.
+    const folderView = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+      .setSelectFolderEnabled(true);
+
+    const picker = new google.picker.PickerBuilder()
+      .addView(folderView)
+      .setOAuthToken(access_token)
+      .setDeveloperKey('{settings.google_picker_api_key}')
+      .setAppId('{app_id}')
+      .setCallback(grantPicked)
+      .build();
+    picker.setVisible(true);
+  }};
+</script>
+</body>
+</html>"""
 
 
 class GrantFileRequest(BaseModel):

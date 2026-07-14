@@ -25,8 +25,11 @@ import pytest
 from sqlalchemy import select
 
 from leadpilot import auth, google_credentials
+from leadpilot.connectors.google_drive import SPREADSHEET_MIME_TYPE
 from leadpilot.connectors.google_sheets import GoogleSheetsConnector, RepNotConnectedError
 from leadpilot.models.rep_google_credential import RepGoogleCredential
+
+from fakes import FakeGoogleDriveClient
 
 
 def _make_rep(session) -> uuid.UUID:
@@ -49,8 +52,31 @@ def test_list_sources_returns_granted_files_for_connected_rep(db_session):
     google_credentials.add_granted_file(db_session, rep_id, "fake-sheet-id-1")
     google_credentials.add_granted_file(db_session, rep_id, "fake-sheet-id-2")
 
-    connector = GoogleSheetsConnector(db_session, rep_id)
+    drive = FakeGoogleDriveClient({
+        "fake-sheet-id-1": SPREADSHEET_MIME_TYPE,
+        "fake-sheet-id-2": SPREADSHEET_MIME_TYPE,
+    })
+    connector = GoogleSheetsConnector(db_session, rep_id, drive_client=drive)
     assert set(connector.list_sources()) == {"fake-sheet-id-1", "fake-sheet-id-2"}
+
+
+def test_list_sources_filters_out_granted_non_spreadsheet_ids(db_session):
+    """The real bug this guards against: granted_file_ids is one flat
+    list shared with verify_drive_contents' folder grants (Decision
+    033) — a rep who granted a Drive folder must not have
+    fetch_all_leads try to read it as a spreadsheet and 400.
+    """
+    rep_id = _make_rep(db_session)
+    google_credentials.store_credential(db_session, rep_id, "fake-refresh-token")
+    google_credentials.add_granted_file(db_session, rep_id, "fake-sheet-id-1")
+    google_credentials.add_granted_file(db_session, rep_id, "fake-folder-id")
+
+    drive = FakeGoogleDriveClient({
+        "fake-sheet-id-1": SPREADSHEET_MIME_TYPE,
+        "fake-folder-id": "application/vnd.google-apps.folder",
+    })
+    connector = GoogleSheetsConnector(db_session, rep_id, drive_client=drive)
+    assert connector.list_sources() == ["fake-sheet-id-1"]
 
 
 def test_fetch_rows_for_ungranted_source_raises_without_network_call(db_session):
@@ -73,6 +99,22 @@ def test_stage_field_write_for_ungranted_source_raises_without_network_call(db_s
     connector = GoogleSheetsConnector(db_session, rep_id)
     with pytest.raises(ValueError, match="has not granted access"):
         connector.stage_field_write("not-granted-sheet", row_ref="2", field_name="status", value="Contacted")
+
+
+def test_fetch_rows_for_a_granted_folder_id_raises_a_clear_error(db_session):
+    """Distinct from "not granted at all" — this id IS in
+    granted_file_ids, it's just not actually a spreadsheet. Should
+    raise a clear error from _sheet_id_for's mimeType check, not let a
+    confusing Sheets API 400 bubble up.
+    """
+    rep_id = _make_rep(db_session)
+    google_credentials.store_credential(db_session, rep_id, "fake-refresh-token")
+    google_credentials.add_granted_file(db_session, rep_id, "fake-folder-id")
+
+    drive = FakeGoogleDriveClient({"fake-folder-id": "application/vnd.google-apps.folder"})
+    connector = GoogleSheetsConnector(db_session, rep_id, drive_client=drive)
+    with pytest.raises(ValueError, match="is not a Google Sheet"):
+        connector.fetch_rows("fake-folder-id")
 
 
 def test_commit_field_write_for_ungranted_source_raises_without_network_call(db_session):

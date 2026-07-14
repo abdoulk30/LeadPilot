@@ -10,22 +10,32 @@ Two things this deliberately does NOT do, worth stating up front:
   (Step 3's Picker integration) fetches a token right before it's
   needed rather than carrying one around.
 
-Scope was drive.file only through Decision 026. Extended 2026-07-13 by
-Marc (send_lead_email, Decision 032/030's "Gmail-scope pairing" note)
-to add the two Gmail scopes both of Marc's remaining Group B tools
-need — gmail.send for send_lead_email, gmail.readonly for
-search_communications (not built yet, but adding its scope now too
-rather than incrementally: see the warning below and in
-.env.example about reps needing to reconnect every time this list
-grows). Least-privilege choices: gmail.send only allows sending, not
-reading/deleting a rep's inbox; gmail.readonly allows reading message
-content/attachments for search_communications but not sending or
-modifying anything — neither is the broad gmail.modify or
-mail.google.com scope.
+Scope was drive.file only through Decision 026 — LeadPilot only ever
+saw files a rep explicitly selected via the Google Picker, never their
+whole Drive. Decision 033 added drive.readonly on top of that: the
+drive.file per-item grant turned out not to extend to a folder's
+contents (confirmed against the real API — granting a folder via
+Picker does not grant visibility into files added to, or already
+sitting in, that folder), which made verify_drive_contents unable to
+do its actual job. drive.file is kept for the write path
+(update_lead_sheet's commit_field_write) and for the deliberate
+per-item consent UX on fetch_all_leads/fetch_ad_hoc_sheet;
+drive.readonly is what verify_drive_contents actually reads through.
+See Decision 033 for the full tradeoff and the note to revisit this
+for a narrower alternative later.
 
-*** Any rep who already connected their Google account under the old
-drive.file-only scope list needs to reconnect (re-run the "Connect
-Google Account" flow) to grant these two new scopes — Google won't
+Extended again 2026-07-13 by Marc (send_lead_email, Decision 032/030's
+"Gmail-scope pairing" note) to add the two Gmail scopes both of Marc's
+remaining Group B tools need — gmail.send for send_lead_email,
+gmail.readonly for search_communications. Least-privilege choices:
+gmail.send only allows sending, not reading/deleting a rep's inbox;
+gmail.readonly allows reading message content/attachments for
+search_communications but not sending or modifying anything — neither
+is the broad gmail.modify or mail.google.com scope.
+
+*** Any rep who already connected their Google account under an older
+scope list needs to reconnect (re-run the "Connect Google Account"
+flow) to grant drive.readonly and/or the Gmail scopes — Google won't
 retroactively add them to an existing consent. Not yet reflected in
 any UI messaging (Step 3 work); flag to affected reps manually until
 then. ***
@@ -34,7 +44,13 @@ access_type=offline + prompt=consent on the authorization URL
 guarantees Google actually returns a refresh_token on every connect,
 not just the first one — without prompt=consent, a rep reconnecting
 after a prior consent can get an access-token-only response with no
-refresh_token in it, silently breaking storage.
+refresh_token in it, silently breaking storage. Widening SCOPES here
+(either for drive.readonly or the Gmail scopes) means every rep who
+connected before that widening is holding a refresh token that does
+NOT cover the new scope — they must reconnect (redo the Connect
+Google Account flow) before the tool that needs it will work for
+them; there's no way to silently upgrade an already-issued token's
+scope.
 """
 
 import secrets
@@ -51,6 +67,7 @@ from leadpilot.config import settings
 
 SCOPES = [
     "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/drive.readonly",
     "https://www.googleapis.com/auth/gmail.send",
     "https://www.googleapis.com/auth/gmail.readonly",
 ]
@@ -89,6 +106,30 @@ def verify_state(cookie_value: str | None, query_value: str | None) -> bool:
     return True
 
 
+def _pkce_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(settings.rep_auth_session_secret, salt="google-oauth-pkce")
+
+
+def sign_code_verifier(code_verifier: str) -> str:
+    """google-auth-oauthlib's Flow generates a PKCE code_verifier
+    on-instance inside authorization_url() (autogenerate_code_verifier
+    defaults to True) and expects the *same* Flow object back for
+    fetch_token(). Since /connect and /callback are two separate HTTP
+    requests — likely two different Flow instances entirely — the
+    verifier has to be carried across them explicitly, the same way
+    `state` already is. Signed for the same reason state is: a cheap
+    tamper/expiry check on top of the cookie.
+    """
+    return _pkce_serializer().dumps(code_verifier)
+
+
+def _unsign_code_verifier(signed_value: str) -> str | None:
+    try:
+        return _pkce_serializer().loads(signed_value, max_age=STATE_MAX_AGE_SECONDS)
+    except (BadSignature, SignatureExpired):
+        return None
+
+
 def _client_config() -> dict:
     return {
         "web": {
@@ -107,22 +148,33 @@ def _flow() -> Flow:
     return flow
 
 
-def build_authorization_url(state: str) -> str:
-    url, _ = _flow().authorization_url(
+def build_authorization_url(state: str) -> tuple[str, str]:
+    """Returns (authorization_url, signed_code_verifier). The caller
+    (app.py) must set the signed verifier as a cookie, the same way it
+    already does for state — see sign_code_verifier's docstring for why.
+    """
+    flow = _flow()
+    url, _ = flow.authorization_url(
         access_type="offline",
         prompt="consent",
         state=state,
         include_granted_scopes="true",
     )
-    return url
+    return url, sign_code_verifier(flow.code_verifier)
 
 
-def exchange_code_for_refresh_token(code: str) -> str:
+def exchange_code_for_refresh_token(code: str, signed_code_verifier: str) -> str:
     """Real call to Google's token endpoint. Raises whatever
-    google-auth-oauthlib raises (e.g. on an invalid/expired code) —
-    callers (app.py) turn that into an HTTP error, not swallow it.
+    google-auth-oauthlib raises (e.g. on an invalid/expired code, or a
+    missing/expired code_verifier) — callers (app.py) turn that into an
+    HTTP error, not swallow it.
     """
+    code_verifier = _unsign_code_verifier(signed_code_verifier)
+    if code_verifier is None:
+        raise ValueError("Missing or expired PKCE code_verifier — try connecting again")
+
     flow = _flow()
+    flow.code_verifier = code_verifier
     flow.fetch_token(code=code)
     refresh_token = flow.credentials.refresh_token
     if not refresh_token:

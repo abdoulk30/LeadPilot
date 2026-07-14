@@ -34,20 +34,25 @@
   }
 
   /* ---- Theme / pattern / sound boot ------------------------------- */
-  /* data-theme and data-pattern are also set by an inline <head> script
-     in base.html before first paint (no theme flash); this re-applies
-     defensively and wires the settings popover. */
+  /* data-theme is also set by an inline <head> script in base.html
+     before first paint (no theme flash); this re-applies defensively
+     and wires the settings popover. */
+
+  var PATTERNS = ["orbs", "grid", "weave", "corner", "none"];
 
   function applyPrefs() {
     var prefs = loadPrefs();
     var root = document.documentElement;
     root.setAttribute("data-theme", prefs.theme || "cool-blue");
-    root.setAttribute("data-pattern", prefs.pattern || "aurora");
+    /* Unknown stored values (e.g. the retired "aurora") fall back to
+       the default orbs layer rather than an unstyled background. */
+    var pattern = PATTERNS.indexOf(prefs.pattern) >= 0 ? prefs.pattern : "orbs";
+    root.setAttribute("data-pattern", pattern);
     document.querySelectorAll("[data-set-theme]").forEach(function (el) {
       el.classList.toggle("selected", el.getAttribute("data-set-theme") === (prefs.theme || "cool-blue"));
     });
     document.querySelectorAll("[data-set-pattern]").forEach(function (el) {
-      el.classList.toggle("selected", el.getAttribute("data-set-pattern") === (prefs.pattern || "aurora"));
+      el.classList.toggle("selected", el.getAttribute("data-set-pattern") === pattern);
     });
     var soundSel = document.getElementById("sound-select");
     if (soundSel) soundSel.value = prefs.sound || "off";

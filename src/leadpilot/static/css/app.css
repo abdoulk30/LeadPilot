@@ -24,7 +24,7 @@
   --success: #5fd6a2;
   --warning: #f0a56b;
   --danger: #ff7b7b;
-  --blur: blur(17px);
+  --blur: blur(18px);
 
   /* Cool blue — default theme (§2) */
   --ar: 59, 130, 246;
@@ -59,41 +59,47 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ---- Background patterns (§3) — theme-tinted, behind the glass ---- */
-/* backdrop-filter only reads as glass with something behind it to
-   blur; over flat black glass reads as gray (§1 open item). */
+/* ---- Base layer (mandatory — glass doesn't work without it) ------- */
+/* Marc's glass system (2026-07-14): page background stays #0c0d10
+   untinted; a fixed accent-tinted pattern layer behind all panels.
+   Default is the two-orb layer at Marc's positions/alphas, with the
+   radii made viewport-relative (approved 2026-07-14) so the orbs
+   cover the same proportion of the frame at any window size —
+   280px/320px on the original mockup artboard ≈ 30vw/34vw.
+   Alternate patterns below are rep personalization on top of the
+   same system: base never tinted, pattern layer accent-derived. */
 
 .bg-layer {
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-}
-
-[data-pattern="aurora"] .bg-layer {
   background:
-    radial-gradient(600px 420px at 12% 8%,  rgba(var(--ar), 0.20), transparent 68%),
-    radial-gradient(720px 540px at 88% 30%, rgba(var(--ar), 0.12), transparent 70%),
-    radial-gradient(520px 480px at 40% 95%, rgba(var(--ar), 0.10), transparent 72%);
+    radial-gradient(circle 30vw at 15% 20%, rgba(var(--ar), 0.20), transparent 70%),
+    radial-gradient(circle 34vw at 88% 80%, rgba(var(--ar), 0.14), transparent 70%);
 }
 
 [data-pattern="grid"] .bg-layer {
   background-image:
+    radial-gradient(circle 40vw at 50% 0%, rgba(var(--ar), 0.16), transparent 70%),
     linear-gradient(rgba(var(--ar), 0.10) 1px, transparent 1px),
     linear-gradient(90deg, rgba(var(--ar), 0.10) 1px, transparent 1px);
-  background-size: 42px 42px;
-  mask-image: radial-gradient(1000px 700px at 50% 30%, #000 30%, transparent 100%);
-  -webkit-mask-image: radial-gradient(1000px 700px at 50% 30%, #000 30%, transparent 100%);
+  background-size: auto, 42px 42px, 42px 42px;
+  mask-image: radial-gradient(120% 90% at 50% 20%, #000 30%, rgba(0, 0, 0, 0.3) 70%, transparent 100%);
+  -webkit-mask-image: radial-gradient(120% 90% at 50% 20%, #000 30%, rgba(0, 0, 0, 0.3) 70%, transparent 100%);
 }
 
 [data-pattern="weave"] .bg-layer {
   background:
-    repeating-linear-gradient(45deg,  rgba(var(--ar), 0.07) 0 1px, transparent 1px 26px),
-    repeating-linear-gradient(-45deg, rgba(var(--ar), 0.07) 0 1px, transparent 1px 26px);
+    radial-gradient(circle 40vw at 25% 0%, rgba(var(--ar), 0.14), transparent 70%),
+    repeating-linear-gradient(45deg,  rgba(var(--ar), 0.08) 0 1px, transparent 1px 26px),
+    repeating-linear-gradient(-45deg, rgba(var(--ar), 0.08) 0 1px, transparent 1px 26px);
 }
 
 [data-pattern="corner"] .bg-layer {
-  background: radial-gradient(900px 700px at 100% 0%, rgba(var(--ar), 0.25), transparent 65%);
+  background:
+    radial-gradient(circle 55vw at 100% 0%, rgba(var(--ar), 0.30), transparent 72%),
+    radial-gradient(circle 30vw at 0% 100%, rgba(var(--ar), 0.10), transparent 70%);
 }
 
 [data-pattern="none"] .bg-layer { background: none; }
@@ -129,7 +135,7 @@ h1, h2, h3 { color: var(--text-bright); font-weight: 600; margin: 0; }
 .micro {
   font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   color: var(--text-faint);
   font-weight: 600;
 }
@@ -163,15 +169,16 @@ button:disabled {
   transform: none;
 }
 
-/* Accent-filled primary — the ONLY accent-filled button on a card is
-   Approve (§6c). */
+/* Primary buttons — accent-tinted glass, never a solid fill (Marc's
+   glass system): rgba(--ar,0.18) surface, 0.5 accent hairline, light
+   accent text. Still the only accent-touched button on a card (§6c). */
 .btn-approve {
-  background: rgba(var(--ar), 0.85);
-  border-color: rgba(var(--ar), 0.9);
-  color: #fff;
+  background: rgba(var(--ar), 0.18);
+  border-color: rgba(var(--ar), 0.5);
+  color: var(--accent-light);
   font-weight: 600;
 }
-.btn-approve:hover { background: rgba(var(--ar), 1); }
+.btn-approve:hover { background: rgba(var(--ar), 0.26); }
 
 .btn-danger-ghost { color: var(--danger); }
 .btn-danger-ghost:hover { background: rgba(255, 123, 123, 0.08); }
@@ -285,12 +292,30 @@ label.field-label {
   gap: 0;
   padding: 12px;
   min-height: 0;
+  /* Panels hug their content instead of stretching to full viewport
+     height — the base layer's orbs need exposed background around the
+     glass to read as glass, and a full-height panel below a single
+     card is exactly the "large empty void" the glass system bans. */
+  align-items: start;
 }
 
 .pane {
   overflow-y: auto;
   min-height: 0;
-  padding: 12px;
+  max-height: 100%;
+  padding: 16px;
+}
+
+/* Handles keep the full column height so there's always something to
+   grab, even next to a short panel. */
+.resize-handle { align-self: stretch; }
+
+/* Center content column: capped at ~900px so cards never sprawl into
+   large empty voids on wide screens. */
+#center-pane > div {
+  max-width: 900px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* Drag handles: 6px invisible, accent tint on hover (§4) */
@@ -532,14 +557,12 @@ label.field-label {
   z-index: 41;
   padding: 20px;
   overflow-y: auto;
-  border-radius: 0;
-  border-top: none;
-  border-bottom: none;
-  border-right: none;
   background: rgba(18, 19, 24, 0.92);
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
-  border-left: 1px solid var(--hairline);
+  /* Every surface gets its hairline border — no borderless panels. */
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-panel) 0 0 var(--radius-panel);
   animation: drawer-in 160ms ease;
 }
 
@@ -633,6 +656,11 @@ label.field-label {
 }
 
 .swatch-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.swatch-row .btn.selected {
+  border-color: rgba(var(--ar), 0.6);
+  color: var(--accent-light);
+  background: rgba(var(--ar), 0.14);
+}
 .swatch {
   width: 22px;
   height: 22px;

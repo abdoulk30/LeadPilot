@@ -1,19 +1,21 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="cool-blue" data-pattern="aurora">
+<html lang="en" data-theme="cool-blue" data-pattern="orbs">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}LeadPilot{% endblock %}</title>
   <link rel="stylesheet" href="/static/css/app.css">
   <script>
-    /* Pre-paint theme/pattern boot — avoids a flash of default theme.
+    /* Pre-paint theme/pattern boot — avoids a flash of defaults.
        Full prefs handling lives in app.js; this only reads. */
     (function () {
       try {
         var p = JSON.parse(localStorage.getItem("leadpilot.prefs")) || {};
         var root = document.documentElement;
         if (p.theme) root.setAttribute("data-theme", p.theme);
-        if (p.pattern) root.setAttribute("data-pattern", p.pattern);
+        if (["orbs", "grid", "weave", "corner", "none"].indexOf(p.pattern) >= 0) {
+          root.setAttribute("data-pattern", p.pattern);
+        }
         if (p.paneLeft) root.style.setProperty("--pane-left", p.paneLeft + "px");
         if (p.paneRight) root.style.setProperty("--pane-right", p.paneRight + "px");
       } catch (e) {}

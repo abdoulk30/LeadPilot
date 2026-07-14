@@ -1,0 +1,71 @@
+{# Right rail (§4): documents checklist + contact history timeline
+   (§6g) — always visible, swapped per selected lead. #}
+<div class="rail-section">
+  <span class="micro">Documents</span>
+  {% if docs %}
+    {% for d in docs %}
+    <div class="doc-row">
+      {% if d.present %}
+        <span class="ok">✓</span> <span>{{ d.label }}</span>
+      {% else %}
+        <span class="missing">✕</span> <span>{{ d.label }}</span>
+      {% endif %}
+    </div>
+    {% if d.detail %}<div class="faint" style="font-size: 11px; margin-left: 20px;">{{ d.detail }}</div>{% endif %}
+    {% endfor %}
+  {% elif docs_error %}
+    <div class="notice-amber" style="font-size: 12px;">{{ docs_error }}</div>
+  {% else %}
+    <div class="faint" style="font-size: 12px;">
+      No Drive folder granted for document checks yet — grant one via
+      Connect Google.
+    </div>
+  {% endif %}
+  {% if folder_options %}
+  <form hx-get="/ui/leads/{{ lead.lead_id }}/rail" hx-target="#rail-pane" hx-swap="innerHTML"
+        style="margin-top: 8px;">
+    <select name="folder_id" hx-get="/ui/leads/{{ lead.lead_id }}/rail" hx-target="#rail-pane"
+            hx-swap="innerHTML" hx-trigger="change" hx-include="this">
+      <option value="">Check a granted folder…</option>
+      {% for f in folder_options %}
+      <option value="{{ f }}" {% if f == folder_id %}selected{% endif %}>{{ f[:34] }}…</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% endif %}
+</div>
+
+<div class="rail-section">
+  <span class="micro">Contact history</span>
+  {% if not events %}
+  <div class="faint" style="font-size: 12px;">No contact yet — this lead is untouched.</div>
+  {% endif %}
+  {% for e in events %}
+  <details class="timeline-entry">
+    <summary>
+      {{ e.channel_label }}
+      {% if e.message_type %}· {{ e.message_type.replace("_", " ") }}{% endif %}
+      {% if e.stage != "executed" %}<span class="faint">· {{ e.stage.replace("_", " ") }}</span>{% endif %}
+      {% if e.pending_outcome %}
+        <span class="pending-outcome">· outcome unknown — follow-up logic paused</span>
+      {% elif e.outcome %}
+        <span class="faint">· {{ e.outcome.replace("_", " ") }}</span>
+      {% endif %}
+      <div class="meta">
+        {{ e.when }}{% if e.actor %} · {{ e.actor }}{% endif %}
+      </div>
+    </summary>
+    <div class="expanded">
+      {%- if e.subject %}{{ e.subject }}
+{% endif -%}
+      {{ e.body or "(no stored content)" }}
+      {%- if e.note %}
+
+Note: {{ e.note }}{% endif %}
+      {% if e.sheet_link %}
+      <div style="margin-top: 6px;"><a href="{{ e.sheet_link }}" target="_blank" rel="noopener">Open in Google Sheets →</a></div>
+      {% endif %}
+    </div>
+  </details>
+  {% endfor %}
+</div>

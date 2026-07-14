@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Queue — LeadPilot{% endblock %}
+{% block body %}
+<div class="app-root">
+  <header class="topbar">
+    <span class="brand">LeadPilot</span>
+
+    {# Quick-switch tabs (§4): swap only the center pane; queue and
+       rail never disappear. #}
+    <nav class="tabs">
+      <a class="tab active" id="tab-queue" href="/">Queue</a>
+      <button class="tab" id="tab-sheet"
+              hx-get="/ui/sheet-tools" hx-target="#center-pane" hx-swap="innerHTML">Sheet</button>
+      <button class="tab" id="tab-docs"
+              hx-get="/ui/docs-tools" hx-target="#center-pane" hx-swap="innerHTML">Docs</button>
+    </nav>
+
+    <span class="spacer"></span>
+
+    <button hx-get="/ui/search" hx-target="#drawer-slot" hx-swap="innerHTML">Search</button>
+    <button hx-get="/ui/connect" hx-target="#drawer-slot" hx-swap="innerHTML">Connect Google</button>
+    <button hx-post="/ui/sync" hx-target="#queue-pane" hx-swap="innerHTML">Sync sheets</button>
+    <button data-toggle-settings title="Appearance">⚙</button>
+    <form method="post" action="/logout/form" style="display:inline">
+      <button type="submit" title="Sign out — {{ rep.email }}">Sign out</button>
+    </form>
+  </header>
+
+  <div class="settings-pop" id="settings-pop" hidden>
+    <span class="micro">Theme</span>
+    <div class="swatch-row">
+      <button class="swatch" data-set-theme="cool-blue"    style="background: rgb(59,130,246)"  title="Cool blue"></button>
+      <button class="swatch" data-set-theme="deep-blue"    style="background: rgb(30,79,163)"   title="Deep blue"></button>
+      <button class="swatch" data-set-theme="royal-purple" style="background: rgb(108,79,209)"  title="Royal purple"></button>
+      <button class="swatch" data-set-theme="dark-purple"  style="background: rgb(67,48,143)"   title="Dark purple"></button>
+      <button class="swatch" data-set-theme="teal"         style="background: rgb(29,158,117)"  title="Teal"></button>
+      <button class="swatch" data-set-theme="gold"         style="background: rgb(201,162,39)"  title="Gold"></button>
+      <button class="swatch" data-set-theme="slate"        style="background: rgb(125,131,140)" title="Slate"></button>
+    </div>
+
+    <span class="micro" style="display:block; margin-top: 12px;">Background</span>
+    <div class="swatch-row">
+      <button class="btn" data-set-pattern="aurora" style="font-size: 11px;">Aurora</button>
+      <button class="btn" data-set-pattern="grid"   style="font-size: 11px;">Grid</button>
+      <button class="btn" data-set-pattern="weave"  style="font-size: 11px;">Weave</button>
+      <button class="btn" data-set-pattern="corner" style="font-size: 11px;">Corner</button>
+      <button class="btn" data-set-pattern="none"   style="font-size: 11px;">None</button>
+    </div>
+
+    <span class="micro" style="display:block; margin-top: 12px;">Click sound</span>
+    <select id="sound-select" style="margin-top: 6px;">
+      <option value="off">Off (default)</option>
+      <option value="glass-tap">Glass tap</option>
+      <option value="soft-chime">Soft chime</option>
+      <option value="mechanical">Mechanical click</option>
+      <option value="marimba">Marimba</option>
+      <option value="low-pulse">Low pulse</option>
+      <option value="crystal">Crystal ping</option>
+    </select>
+  </div>
+
+  {# Three-pane resizable workspace (§4). #}
+  <main class="workspace">
+    <section class="pane panel" id="queue-pane"
+             hx-get="/ui/queue" hx-trigger="load" hx-swap="innerHTML">
+      <div class="empty-state">Loading queue…</div>
+    </section>
+
+    <div class="resize-handle" data-resize="left"></div>
+
+    <section class="pane panel" id="center-pane">
+      <div class="empty-state">
+        Select a lead from the queue to review its drafted actions.
+      </div>
+    </section>
+
+    <div class="resize-handle" data-resize="right"></div>
+
+    <aside class="pane panel" id="rail-pane">
+      <div class="empty-state">Context appears here when a lead is selected.</div>
+    </aside>
+  </main>
+</div>
+
+<div id="drawer-slot"></div>
+{% endblock %}

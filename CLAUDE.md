@@ -44,8 +44,28 @@ tool-registration scaffold (`tools/base.py`/`registry.py`, Decision
 031), and the `/dev/picker-test` harness (now also supports granting a
 Drive folder, not just a sheet). Group B (Marc): `get_contact_history`,
 `initiate_lead_call`, `send_lead_text`, `send_lead_email`,
-`dispatch_slack_handoff`, `search_communications`. Not yet built: the
-prompt-injection validation layer, Step 3 (the interface).
+`dispatch_slack_handoff`, `search_communications`. The
+prompt-injection validation layer is also built (`injection_guard.py`,
+Decision 006, hooked into `lead_ingest`).
+
+**Step 3 (the interface) is built on `marc-interface-build`**
+(2026-07-14, Decision 036): server-rendered Jinja2 + htmx workspace —
+templates in `src/leadpilot/templates/`, routes in `src/leadpilot/ui.py`
+(same auth chain as the JSON API, redirect semantics), queue assembly
++ interim ranking in `src/leadpilot/queue_builder.py`, static assets
+(glass CSS token system, 7 themes, vendored htmx) in
+`src/leadpilot/static/`. Approve buttons call `gate.approve()` + the
+tool's own `execute_*()`; no second approval mechanism exists.
+`scripts/seed_demo_data.py` seeds a demo rep + leads for manual
+walkthroughs (run `--wipe` before the full pytest suite — some
+fetch_all_leads tests count all leads in the DB). Design source of
+truth: `leadpilot-docs/context-files/leadpilot_interface_design_spec_v001.md`;
+autonomous build decisions:
+`leadpilot-docs/design/interface-build-decisions-v001.md`. Two
+backend fixes rode along: `execute_initiate_lead_call` now sets
+`outcome=PENDING` (log_call_outcome's documented contract — nothing
+actually set it), and `/auth/google/callback` 303-redirects into the
+workspace instead of returning JSON to a browser navigation.
 
 **Post-merge fix required and applied (2026-07-13, commit `3dc3a52`):**
 Marc's Decision 034 (same-cell concurrent-write protection) changed

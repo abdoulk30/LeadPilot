@@ -1,15 +1,17 @@
-"""Minimal FastAPI app — just enough to prove the rep-session system
-works end-to-end over real HTTP, not just as isolated function calls.
-The actual rep-facing dashboard (prioritized queue, approve/reject,
-diff view, etc.) is Step 3 — this only covers Step 1's authentication
-piece: login, logout, and a protected endpoint demonstrating the
-AUTHENTICATION GUARD from PRD v1.04's system prompt.
+"""FastAPI app: Step 1's rep-session JSON endpoints (login, logout,
+whoami, the Google OAuth round trip) plus Step 3's rep-facing
+workspace (leadpilot.ui — server-rendered Jinja2 + htmx). require_rep
+below stays the AUTHENTICATION GUARD for JSON endpoints; the UI routes
+use ui.require_rep_ui, which enforces the same auth.get_rep_for_signed_token
+chain but redirects to /login instead of returning 401 JSON.
 """
 
 from collections.abc import Generator
+from pathlib import Path
 
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -19,6 +21,12 @@ from leadpilot.db import SessionLocal
 from leadpilot.models.rep import Rep
 
 app = FastAPI(title="LeadPilot")
+
+app.mount(
+    "/static",
+    StaticFiles(directory=str(Path(__file__).parent / "static")),
+    name="static",
+)
 
 SESSION_COOKIE_NAME = "leadpilot_session"
 
@@ -159,7 +167,16 @@ def google_callback(
 
     google_credentials.store_credential(db, rep.rep_id, refresh_token)
     db.commit()
-    return {"connected": True, "rep_id": str(rep.rep_id)}
+    # This is a top-level browser navigation arriving back from
+    # Google's consent screen — land the rep in the workspace (Step
+    # 3's Connect drawer picks up the connected state), not on raw
+    # JSON. Cookie deletions are set on this redirect directly:
+    # FastAPI only merges the injected `response` param's headers when
+    # a route returns a plain value, not a Response instance.
+    redirect = RedirectResponse(url="/?google=connected", status_code=303)
+    redirect.delete_cookie(GOOGLE_OAUTH_STATE_COOKIE)
+    redirect.delete_cookie(GOOGLE_OAUTH_CODE_VERIFIER_COOKIE)
+    return redirect
 
 
 @app.get("/auth/google/access-token")
@@ -305,3 +322,11 @@ def google_grant_file(payload: GrantFileRequest, rep: Rep = Depends(require_rep)
     google_credentials.add_granted_file(db, rep.rep_id, payload.file_id)
     db.commit()
     return {"granted_file_ids": google_credentials.granted_file_ids(db, rep.rep_id)}
+
+
+# Step 3 workspace routes — imported last so ui.py's late import of
+# get_db above never cycles.
+from leadpilot import ui  # noqa: E402
+
+app.include_router(ui.router)
+app.add_exception_handler(ui.LoginRequiredError, ui.login_required_handler)

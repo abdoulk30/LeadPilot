@@ -1,0 +1,51 @@
+{# Search results (§6h): identity header when the identifier matches a
+   known lead, then unified email/SMS rows. A name-search shows the
+   amber "email results only" notice — truth over silent partials. #}
+{% if lead %}
+<div class="panel identity-header">
+  <div class="avatar">{{ (lead.display_name or "?")[:1] | upper }}</div>
+  <div style="flex:1; min-width:0;">
+    <div style="font-weight:600; color: var(--text-bright);">{{ lead.display_name or "(no name)" }}</div>
+    <div class="faint" style="font-size:11.5px;">
+      {% if lead.company %}{{ lead.company }} · {% endif %}
+      {{ lead.primary_phone or "" }} {{ lead.primary_email or "" }}
+    </div>
+  </div>
+  <button hx-get="/ui/leads/{{ lead.lead_id }}"
+          hx-target="#center-pane" hx-swap="innerHTML"
+          hx-on::after-request="document.getElementById('drawer-slot').innerHTML = ''">
+    Open lead
+  </button>
+</div>
+{% endif %}
+
+{% if name_search %}
+<div class="notice-amber">
+  Email results only — texts can't be searched by name.
+</div>
+{% endif %}
+
+{% if error %}
+<div class="notice-error">{{ error }}</div>
+{% endif %}
+
+{% if results %}
+  <span class="micro">Email ({{ results.emails | length }})</span>
+  {% if not results.emails %}<div class="faint" style="font-size:12px; padding: 6px 0;">No email results.</div>{% endif %}
+  {% for e in results.emails %}
+  <div class="result-row">
+    <div><strong>{{ e.subject or "(no subject)" }}</strong>{% if e.has_attachment %} 📎{% endif %}</div>
+    <div>{{ e.snippet }}</div>
+    <div class="meta">{{ e.from }} → {{ e.to }} · {{ e.date }}</div>
+  </div>
+  {% endfor %}
+
+  <span class="micro" style="display:block; margin-top: 14px;">Texts ({{ results.texts | length }})</span>
+  {% if not results.texts %}<div class="faint" style="font-size:12px; padding: 6px 0;">No SMS results{% if name_search %} — see note above{% endif %}.</div>{% endif %}
+  {% for t in results.texts %}
+  <div class="result-row">
+    <div>{{ t.body }}</div>
+    <div class="meta">{{ t.from }} → {{ t.to }} · {{ t.date_sent }} · {{ t.direction }}</div>
+  </div>
+  {% endfor %}
+{% endif %}

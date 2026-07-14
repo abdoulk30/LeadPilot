@@ -26,7 +26,7 @@ import uuid
 from sqlalchemy.orm import Session
 
 from leadpilot import gate
-from leadpilot.models.contact_history import Channel, ContactHistory, Tool
+from leadpilot.models.contact_history import Channel, ContactHistory, Outcome, Tool
 from leadpilot.models.leads import Lead
 from leadpilot.tools.base import tool
 
@@ -103,5 +103,16 @@ def execute_initiate_lead_call(session: Session, *, event_id: uuid.UUID | str) -
 
     if not gate.try_execute(session, event_id):
         return None
+
+    # The executed-call ↔ log_call_outcome contract (Decision 032,
+    # architecture/state-schema.md "Outcome visibility"): an executed
+    # call sits at outcome=PENDING until the rep reports back via
+    # log_call_outcome, which refuses rows at any other outcome. This
+    # was documented ("once executed, outcome=PENDING") but nothing
+    # actually set it — log_call_outcome's tests built their rows with
+    # PENDING pre-set, masking the gap; Step 3's approve flow is the
+    # first real caller to hit it end-to-end.
+    event.outcome = Outcome.PENDING
+    session.flush()
 
     return event.content_ref

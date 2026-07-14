@@ -1,0 +1,11 @@
+{% if error %}
+<div class="notice-error">{{ error }}</div>
+{% else %}
+<div class="card-status ok" style="font-size: 12.5px;">
+  Read {{ count }} row{{ "s" if count != 1 else "" }} —
+  {{ new_count }} new lead{{ "s" if new_count != 1 else "" }} added to the queue.
+  {% if flagged_count %}
+  <span style="color: var(--danger);">{{ flagged_count }} row{{ "s" if flagged_count != 1 else "" }} flagged by the injection guard.</span>
+  {% endif %}
+</div>
+{% endif %}

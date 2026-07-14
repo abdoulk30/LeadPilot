@@ -1,0 +1,657 @@
+/* LeadPilot interface — design spec v001 (leadpilot-docs/context-files/
+   leadpilot_interface_design_spec_v001.md). Glass design language (§1),
+   CSS-variable themes (§2), background patterns (§3), three-pane
+   workspace (§4), interaction feedback (§5).
+
+   Everything accent-touched derives from --ar (accent as an RGB triple,
+   so it composes into rgba(var(--ar), α)) plus --accent-light for text
+   on dark — never a hardcoded per-component accent. Semantic colors
+   (success/warning/danger) deliberately do NOT re-theme (§2). */
+
+:root {
+  --bg: #0c0d10;
+  --panel: rgba(255, 255, 255, 0.035);
+  --card: rgba(255, 255, 255, 0.03);
+  --hairline: rgba(255, 255, 255, 0.08);
+  --hairline-strong: rgba(255, 255, 255, 0.12);
+  --hairline-faint: rgba(255, 255, 255, 0.07);
+  --text: #e9e7e2;
+  --text-bright: #ffffff;
+  --text-dim: #9a9ea6;
+  --text-faint: #5b6067;
+  --radius-panel: 12px;
+  --radius-control: 8px;
+  --success: #5fd6a2;
+  --warning: #f0a56b;
+  --danger: #ff7b7b;
+  --blur: blur(17px);
+
+  /* Cool blue — default theme (§2) */
+  --ar: 59, 130, 246;
+  --accent-light: #9cc3f9;
+
+  --pane-left: 200px;
+  --pane-right: 250px;
+}
+
+[data-theme="deep-blue"]    { --ar: 30, 79, 163;   --accent-light: #7fa4dd; }
+[data-theme="royal-purple"] { --ar: 108, 79, 209;  --accent-light: #b3a0ef; }
+[data-theme="dark-purple"]  { --ar: 67, 48, 143;   --accent-light: #9c8cd6; }
+[data-theme="teal"]         { --ar: 29, 158, 117;  --accent-light: #7fd6b4; }
+[data-theme="gold"]         { --ar: 201, 162, 39;  --accent-light: #e3c96a; }
+[data-theme="slate"]        { --ar: 125, 131, 140; --accent-light: #c7cad0; }
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- Background patterns (§3) — theme-tinted, behind the glass ---- */
+/* backdrop-filter only reads as glass with something behind it to
+   blur; over flat black glass reads as gray (§1 open item). */
+
+.bg-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+[data-pattern="aurora"] .bg-layer {
+  background:
+    radial-gradient(600px 420px at 12% 8%,  rgba(var(--ar), 0.20), transparent 68%),
+    radial-gradient(720px 540px at 88% 30%, rgba(var(--ar), 0.12), transparent 70%),
+    radial-gradient(520px 480px at 40% 95%, rgba(var(--ar), 0.10), transparent 72%);
+}
+
+[data-pattern="grid"] .bg-layer {
+  background-image:
+    linear-gradient(rgba(var(--ar), 0.10) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--ar), 0.10) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: radial-gradient(1000px 700px at 50% 30%, #000 30%, transparent 100%);
+  -webkit-mask-image: radial-gradient(1000px 700px at 50% 30%, #000 30%, transparent 100%);
+}
+
+[data-pattern="weave"] .bg-layer {
+  background:
+    repeating-linear-gradient(45deg,  rgba(var(--ar), 0.07) 0 1px, transparent 1px 26px),
+    repeating-linear-gradient(-45deg, rgba(var(--ar), 0.07) 0 1px, transparent 1px 26px);
+}
+
+[data-pattern="corner"] .bg-layer {
+  background: radial-gradient(900px 700px at 100% 0%, rgba(var(--ar), 0.25), transparent 65%);
+}
+
+[data-pattern="none"] .bg-layer { background: none; }
+
+.app-root {
+  position: relative;
+  z-index: 1;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- Glass surfaces (§1) ---- */
+
+.panel {
+  background: var(--panel);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-panel);
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--hairline-faint);
+  border-radius: var(--radius-panel);
+}
+
+/* ---- Type ---- */
+
+h1, h2, h3 { color: var(--text-bright); font-weight: 600; margin: 0; }
+
+.micro {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-faint);
+  font-weight: 600;
+}
+
+.dim   { color: var(--text-dim); }
+.faint { color: var(--text-faint); }
+
+a { color: var(--accent-light); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ---- Controls + interaction feedback (§5) ---- */
+
+button, .btn {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  padding: 7px 14px;
+  cursor: pointer;
+  transition: transform 80ms ease, background 120ms ease, box-shadow 180ms ease;
+}
+
+button:hover, .btn:hover { background: rgba(255, 255, 255, 0.08); }
+button:active, .btn:active { transform: scale(0.96); }
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+  transform: none;
+}
+
+/* Accent-filled primary — the ONLY accent-filled button on a card is
+   Approve (§6c). */
+.btn-approve {
+  background: rgba(var(--ar), 0.85);
+  border-color: rgba(var(--ar), 0.9);
+  color: #fff;
+  font-weight: 600;
+}
+.btn-approve:hover { background: rgba(var(--ar), 1); }
+
+.btn-danger-ghost { color: var(--danger); }
+.btn-danger-ghost:hover { background: rgba(255, 123, 123, 0.08); }
+
+/* Registered-click glow ring (§5) — chosen over background flash. */
+.fx-glow {
+  box-shadow: 0 0 0 1px rgba(var(--ar), 0.7), 0 0 12px rgba(var(--ar), 0.3);
+}
+
+/* Persistent confirmed state (§5/§6c) */
+.btn-confirmed {
+  color: var(--success);
+  background: rgba(95, 214, 162, 0.08);
+  border-color: rgba(95, 214, 162, 0.3);
+  cursor: default;
+  font-weight: 600;
+}
+.btn-confirmed:active { transform: none; }
+
+input[type="text"], input[type="email"], input[type="password"], textarea, select {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  padding: 8px 10px;
+  width: 100%;
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: rgba(var(--ar), 0.6);
+  box-shadow: 0 0 0 1px rgba(var(--ar), 0.35);
+}
+
+textarea { resize: vertical; min-height: 72px; }
+
+label.field-label {
+  display: block;
+  margin: 10px 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+}
+
+/* ---- Login gate (§6a) ---- */
+
+.login-wrap {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  position: relative;
+  z-index: 1;
+}
+
+.login-card {
+  width: 340px;
+  padding: 32px 28px 26px;
+}
+
+.login-card h1 { font-size: 20px; margin-bottom: 2px; }
+
+.login-error {
+  color: var(--danger);
+  font-size: 13px;
+  margin-top: 10px;
+}
+
+/* ---- Three-pane workspace (§4) ---- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--hairline-faint);
+}
+
+.topbar .brand {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-bright);
+  letter-spacing: 0.02em;
+}
+
+.topbar .tabs { display: flex; gap: 4px; }
+
+.tab {
+  padding: 5px 12px;
+  border-radius: var(--radius-control);
+  font-size: 13px;
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid transparent;
+}
+.tab:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+.tab.active {
+  color: var(--accent-light);
+  background: rgba(var(--ar), 0.12);
+  border-color: rgba(var(--ar), 0.25);
+}
+
+.topbar .spacer { flex: 1; }
+
+.workspace {
+  flex: 1;
+  display: grid;
+  grid-template-columns: var(--pane-left) 6px minmax(0, 1fr) 6px var(--pane-right);
+  gap: 0;
+  padding: 12px;
+  min-height: 0;
+}
+
+.pane {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 12px;
+}
+
+/* Drag handles: 6px invisible, accent tint on hover (§4) */
+.resize-handle {
+  cursor: col-resize;
+  background: transparent;
+  transition: background 120ms ease;
+  border-radius: 3px;
+}
+.resize-handle:hover, .resize-handle.dragging {
+  background: rgba(var(--ar), 0.35);
+}
+
+/* ---- Queue (left pane) ---- */
+
+.queue-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 10px;
+  margin-bottom: 6px;
+  border-radius: var(--radius-control);
+  border: 1px solid transparent;
+  background: none;
+  color: var(--text);
+}
+.queue-item:hover { background: rgba(255, 255, 255, 0.05); }
+.queue-item.selected {
+  background: rgba(var(--ar), 0.1);
+  border-color: rgba(var(--ar), 0.3);
+}
+
+.queue-item .name {
+  font-weight: 600;
+  color: var(--text-bright);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.queue-item .line {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rank-pill {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.rank-1 { color: var(--accent-light); background: rgba(var(--ar), 0.18); }
+.rank-2 { color: var(--success); background: rgba(95, 214, 162, 0.14); }
+.rank-3 { color: var(--warning); background: rgba(240, 165, 107, 0.14); }
+
+.flag-badge {
+  font-size: 10px;
+  color: var(--danger);
+  border: 1px solid rgba(255, 123, 123, 0.4);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+/* Unlogged-calls amber strip (§6f moment 2) */
+.unlogged-strip {
+  border: 1px solid rgba(240, 165, 107, 0.35);
+  background: rgba(240, 165, 107, 0.07);
+  border-radius: var(--radius-control);
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+.unlogged-strip .micro { color: var(--warning); }
+.unlogged-strip .consequence { font-size: 12px; color: var(--text-dim); margin: 4px 0 8px; }
+.unlogged-call { margin-top: 8px; font-size: 12px; }
+
+/* ---- Action cards (§6c) ---- */
+
+.action-card { padding: 14px 16px; margin-bottom: 12px; }
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.card-head .micro { color: var(--text-faint); }
+
+.draft-body {
+  white-space: pre-wrap;
+  font-size: 13.5px;
+  color: var(--text);
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--hairline-faint);
+  border-radius: var(--radius-control);
+}
+
+.email-subject {
+  font-weight: 600;
+  color: var(--text-bright);
+  font-size: 13.5px;
+  margin-bottom: 6px;
+}
+
+.call-note {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  margin-top: 8px;
+}
+
+.btn-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.card-status { font-size: 12px; margin-top: 10px; }
+.card-status.ok { color: var(--success); }
+.card-status.err { color: var(--danger); }
+
+/* Handoff cards (§6d) — urgent gets amber border + header, identical
+   approval anatomy. Urgency changes prominence, never the gate. */
+.handoff-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 1px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--hairline);
+  color: var(--text-dim);
+}
+.handoff-badge.urgent {
+  color: var(--warning);
+  border-color: rgba(240, 165, 107, 0.5);
+}
+.action-card.urgent { border-color: rgba(240, 165, 107, 0.45); }
+.action-card.urgent .card-head .micro { color: var(--warning); }
+
+.recipients-note { font-size: 12px; color: var(--text-faint); margin-top: 8px; }
+
+/* ---- Sheet diff (§6e) ---- */
+
+.diff-table { width: 100%; font-size: 13px; border-collapse: collapse; }
+.diff-table td { padding: 5px 8px; vertical-align: top; }
+.diff-table .lbl { color: var(--text-faint); width: 110px; }
+.diff-old { color: var(--danger); text-decoration: line-through; }
+.diff-new { color: var(--success); }
+
+/* Stale-write conflict — the rare sanctioned prominent panel (§6e) */
+.conflict-panel {
+  border-color: rgba(240, 165, 107, 0.5);
+  padding: 16px;
+}
+.conflict-panel .reassure {
+  color: var(--success);
+  font-weight: 600;
+  font-size: 13.5px;
+  margin-bottom: 10px;
+}
+.conflict-rows { width: 100%; font-size: 13px; border-collapse: collapse; margin: 4px 0 10px; }
+.conflict-rows td { padding: 5px 8px; border-top: 1px solid var(--hairline-faint); }
+.conflict-rows .lbl { color: var(--text-faint); width: 170px; }
+
+/* ---- Call outcome row (§6f moment 1) ---- */
+
+.outcome-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.outcome-row button { font-size: 12px; padding: 5px 10px; }
+
+/* ---- Context rail: docs + timeline (§6g) ---- */
+
+.rail-section { margin-bottom: 18px; }
+.rail-section > .micro { display: block; margin-bottom: 8px; }
+
+.doc-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  padding: 4px 0;
+}
+.doc-row .ok  { color: var(--success); }
+.doc-row .missing { color: var(--danger); }
+
+.timeline-entry {
+  border-left: 2px solid var(--hairline);
+  padding: 2px 0 10px 10px;
+  margin-left: 4px;
+  font-size: 12.5px;
+}
+.timeline-entry summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--text);
+}
+.timeline-entry summary::-webkit-details-marker { display: none; }
+.timeline-entry summary:hover { color: var(--text-bright); }
+.timeline-entry .meta { color: var(--text-faint); font-size: 11.5px; }
+.timeline-entry .expanded {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: var(--radius-control);
+  white-space: pre-wrap;
+}
+.timeline-entry .pending-outcome { color: var(--warning); }
+
+/* ---- Slide-over drawers (§4) ---- */
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 40;
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 440px;
+  max-width: 92vw;
+  z-index: 41;
+  padding: 20px;
+  overflow-y: auto;
+  border-radius: 0;
+  border-top: none;
+  border-bottom: none;
+  border-right: none;
+  background: rgba(18, 19, 24, 0.92);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border-left: 1px solid var(--hairline);
+  animation: drawer-in 160ms ease;
+}
+
+@keyframes drawer-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.scope-chip {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--accent-light);
+  background: rgba(var(--ar), 0.1);
+  border: 1px solid rgba(var(--ar), 0.3);
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin: 0 6px 6px 0;
+}
+
+/* Search (§6h) */
+.search-hint { font-size: 11.5px; color: var(--text-faint); margin-top: 6px; }
+
+.identity-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  margin: 12px 0;
+}
+
+.avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(var(--ar), 0.25);
+  color: var(--accent-light);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.result-row {
+  padding: 8px 10px;
+  border-top: 1px solid var(--hairline-faint);
+  font-size: 12.5px;
+}
+.result-row .meta { color: var(--text-faint); font-size: 11.5px; }
+
+.notice-amber {
+  border: 1px solid rgba(240, 165, 107, 0.35);
+  background: rgba(240, 165, 107, 0.07);
+  color: var(--warning);
+  border-radius: var(--radius-control);
+  padding: 8px 10px;
+  font-size: 12.5px;
+  margin: 10px 0;
+}
+
+.notice-error {
+  border: 1px solid rgba(255, 123, 123, 0.35);
+  background: rgba(255, 123, 123, 0.06);
+  color: var(--danger);
+  border-radius: var(--radius-control);
+  padding: 8px 10px;
+  font-size: 12.5px;
+  margin: 10px 0;
+}
+
+/* ---- Settings popover ---- */
+
+.settings-pop {
+  position: absolute;
+  top: 46px;
+  right: 14px;
+  width: 260px;
+  padding: 14px;
+  z-index: 30;
+  background: rgba(18, 19, 24, 0.95);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-panel);
+}
+
+.swatch-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  padding: 0;
+  cursor: pointer;
+}
+.swatch.selected { border-color: #fff; }
+
+.empty-state {
+  color: var(--text-faint);
+  text-align: center;
+  padding: 60px 20px;
+  font-size: 13px;
+}
+
+.center-msg { margin: 10px 0; }
+
+/* htmx request indicator */
+.htmx-indicator { opacity: 0; transition: opacity 150ms ease; }
+.htmx-request .htmx-indicator, .htmx-request.htmx-indicator { opacity: 1; }

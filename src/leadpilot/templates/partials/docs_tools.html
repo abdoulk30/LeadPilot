@@ -1,0 +1,57 @@
+{# "Docs" quick-switch tab (§4) — inspect any granted Drive folder
+   against the required-document checklist (Decision 008). #}
+<div>
+  <h2 style="font-size: 16px; margin-bottom: 4px;">Documents</h2>
+  <p class="dim" style="font-size: 13px;">
+    Check a granted Drive folder for the required deal documents —
+    application, bank statements, prequal questionnaire. A file only
+    counts if it's a real PDF over 5KB.
+  </p>
+
+  {% if not folders %}
+  <div class="notice-amber">
+    No Drive folders granted yet — use Connect Google → “Pick a Drive
+    folder” first.
+  </div>
+  {% else %}
+  <form hx-get="/ui/docs-tools" hx-target="#center-pane" hx-swap="innerHTML">
+    <label class="field-label">Granted folder</label>
+    <select name="folder_id">
+      {% for f in folders %}
+      <option value="{{ f }}" {% if f == folder_id %}selected{% endif %}>{{ f }}</option>
+      {% endfor %}
+    </select>
+    <div class="btn-row">
+      <button type="submit">Check folder</button>
+      <span class="htmx-indicator dim" style="font-size:12px;">Checking…</span>
+    </div>
+  </form>
+  {% endif %}
+
+  {% if docs_error %}
+  <div class="notice-error" style="margin-top: 12px;">{{ docs_error }}</div>
+  {% endif %}
+
+  {% if docs %}
+  <div class="card action-card" style="margin-top: 14px;">
+    <span class="micro">Checklist</span>
+    {% for d in docs %}
+    <div class="doc-row">
+      {% if d.present %}<span class="ok">✓</span>{% else %}<span class="missing">✕</span>{% endif %}
+      <span>{{ d.label }}</span>
+    </div>
+    {% if d.detail %}<div class="faint" style="font-size: 11px; margin-left: 20px;">{{ d.detail }}</div>{% endif %}
+    {% endfor %}
+  </div>
+
+  <div class="card action-card">
+    <span class="micro">Everything in this folder ({{ files | length }})</span>
+    {% for f in files %}
+    <div class="doc-row">
+      <span class="dim">{{ f.name }}</span>
+      <span class="faint" style="font-size: 11px;">{{ f.mime_type }} · {{ f.size_bytes or 0 }} bytes</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>

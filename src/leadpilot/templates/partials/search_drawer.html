@@ -1,0 +1,23 @@
+{# §6h communications search — slide-over. The SMS limitation is
+   designed into the UI, not hidden. #}
+<div class="drawer-backdrop" hx-on:click="document.getElementById('drawer-slot').innerHTML = ''"></div>
+<div class="drawer">
+  <div class="drawer-head">
+    <h3 style="font-size: 15px;">Search communications</h3>
+    <button hx-on:click="document.getElementById('drawer-slot').innerHTML = ''">✕</button>
+  </div>
+
+  <form hx-get="/ui/search/results" hx-target="#search-results" hx-swap="innerHTML">
+    <input type="text" name="q" placeholder="Name, company, email, or phone"
+           autofocus autocomplete="off">
+    <div class="search-hint">
+      Phone numbers search texts and email · names and companies search email only
+    </div>
+    <div class="btn-row">
+      <button type="submit" class="btn-approve">Search</button>
+      <span class="htmx-indicator dim" style="font-size:12px;">Searching…</span>
+    </div>
+  </form>
+
+  <div id="search-results" style="margin-top: 14px;"></div>
+</div>

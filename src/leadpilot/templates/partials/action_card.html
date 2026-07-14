@@ -1,0 +1,140 @@
+{# One staged action (§6c anatomy, §6d handoffs, §6e diffs, §6f calls).
+   Context: c (queue_builder.describe_event dict), edit (bool),
+   result {ok_message, error_message, copy_phone} | none. #}
+{% set urgent = c.message_type == "urgent_callback_request" %}
+<div class="card action-card{% if urgent %} urgent{% endif %}" id="card-{{ c.event_id }}">
+  <div class="card-head">
+    <span class="micro">
+      {% if c.channel == "call" %}📞 Call
+      {% elif c.channel == "text" %}💬 Text
+      {% elif c.channel == "email" %}✉️ Email
+      {% elif c.channel == "slack_handoff" %}⤴ Slack handoff
+      {% elif c.channel == "sheet_edit" %}▦ Sheet edit
+      {% endif %}
+    </span>
+    {% if c.message_type %}
+      <span class="handoff-badge{% if urgent %} urgent{% endif %}">
+        {{ c.message_type.replace("_", " ") }}
+      </span>
+    {% endif %}
+    <span class="spacer" style="flex:1"></span>
+    <span class="faint" style="font-size: 11px;">{{ c.when }}</span>
+  </div>
+
+  {# ---------------- Draft body ---------------- #}
+  {% if edit %}
+    <form hx-post="/ui/actions/{{ c.event_id }}/edit"
+          hx-target="#card-{{ c.event_id }}" hx-swap="outerHTML">
+      {% if c.channel == "email" %}
+        <label class="field-label">Subject</label>
+        <input type="text" name="subject" value="{{ c.subject or '' }}" required>
+        <label class="field-label">Body</label>
+        <textarea name="body" rows="6" required>{{ c.body }}</textarea>
+      {% else %}
+        <label class="field-label">Message</label>
+        <textarea name="body" rows="5" required>{{ c.body }}</textarea>
+      {% endif %}
+      <div class="btn-row">
+        <button type="submit" class="btn-approve">Save draft</button>
+        <button type="button"
+                hx-get="/ui/actions/{{ c.event_id }}/card"
+                hx-target="#card-{{ c.event_id }}" hx-swap="outerHTML">Cancel</button>
+      </div>
+    </form>
+  {% else %}
+    {% if c.channel == "sheet_edit" %}
+      <table class="diff-table">
+        <tr><td class="lbl">Field</td><td>{{ c.diff.field }}</td></tr>
+        <tr><td class="lbl">Current</td><td class="diff-old">{{ c.diff.current if c.diff.current is not none else "(blank)" }}</td></tr>
+        <tr><td class="lbl">Proposed</td><td class="diff-new">{{ c.diff.value }}</td></tr>
+      </table>
+      {% if c.sheet_link %}
+        <div class="recipients-note"><a href="{{ c.sheet_link }}" target="_blank" rel="noopener">Open in Google Sheets →</a></div>
+      {% endif %}
+    {% elif c.channel == "call" %}
+      <div class="draft-body">Call {{ c.body }}</div>
+      {% if c.stage in ("awaiting_rep_approval", "approved") %}
+        <div class="call-note">Approving copies the number to your clipboard. Nothing dials automatically.</div>
+      {% endif %}
+    {% else %}
+      {% if c.subject %}<div class="email-subject">{{ c.subject }}</div>{% endif %}
+      <div class="draft-body">{{ c.body }}</div>
+    {% endif %}
+
+    {% if c.channel == "slack_handoff" %}
+      <div class="recipients-note">Posts to 3 back-office stakeholders.</div>
+    {% endif %}
+
+    {# ---------------- State row ---------------- #}
+    {% if c.stage in ("awaiting_rep_approval", "approved") %}
+      <div class="btn-row">
+        <button class="btn-approve"
+                hx-post="/ui/actions/{{ c.event_id }}/approve"
+                hx-target="#card-{{ c.event_id }}" hx-swap="outerHTML">
+          {% if c.channel == "call" %}Approve &amp; copy number
+          {% elif c.channel == "text" %}Approve &amp; send text
+          {% elif c.channel == "email" %}Approve &amp; send email
+          {% elif c.channel == "slack_handoff" %}Approve &amp; post to Slack
+          {% elif c.channel == "sheet_edit" %}Approve &amp; write to sheet
+          {% endif %}
+        </button>
+        {% if c.channel in ("text", "email", "slack_handoff") %}
+        <button hx-get="/ui/actions/{{ c.event_id }}/card?edit=1"
+                hx-target="#card-{{ c.event_id }}" hx-swap="outerHTML">Edit</button>
+        {% endif %}
+        <button class="btn-danger-ghost"
+                hx-post="/ui/actions/{{ c.event_id }}/reject"
+                hx-target="#card-{{ c.event_id }}" hx-swap="outerHTML">Reject</button>
+      </div>
+
+    {% elif c.stage == "executed" %}
+      {% if c.channel == "call" %}
+        <div class="btn-row" {% if result and result.copy_phone %}data-clipboard-copy="{{ result.copy_phone }}"{% else %}data-clipboard-copy="{{ c.body }}"{% endif %}>
+          <button class="btn-confirmed" disabled>Number copied ✓</button>
+          <button data-copy-btn>Copy again</button>
+          <span class="dim" data-copy-status style="font-size: 12px;"></span>
+        </div>
+        {% if c.pending_outcome %}
+          {# §6f moment 1: the same card becomes the outcome row.
+             One tap, inline, non-blocking. "Didn't call" is a
+             first-class outcome. #}
+          <div class="card-status" style="margin-top: 12px;">
+            <span class="micro" style="color: var(--warning);">What happened?</span>
+          </div>
+          <div class="outcome-row">
+            {% for value, label in [("answered", "Answered"), ("no_answer", "No answer"), ("voicemail", "Voicemail"), ("didnt_call", "Didn't call")] %}
+            <button hx-post="/ui/calls/{{ c.event_id }}/outcome"
+                    hx-vals='{"outcome": "{{ value }}"}'
+                    hx-target="#card-{{ c.event_id }}" hx-swap="outerHTML">{{ label }}</button>
+            {% endfor %}
+          </div>
+        {% elif c.outcome %}
+          <div class="card-status ok">Outcome logged: {{ c.outcome.replace("_", " ") }}</div>
+        {% endif %}
+      {% else %}
+        <div class="btn-row">
+          <button class="btn-confirmed" disabled>
+            {% if c.channel == "text" %}Sent ✓
+            {% elif c.channel == "email" %}Sent ✓
+            {% elif c.channel == "slack_handoff" %}Posted ✓
+            {% elif c.channel == "sheet_edit" %}Written to sheet ✓
+            {% endif %}
+          </button>
+        </div>
+      {% endif %}
+      {% if result and result.ok_message %}<div class="card-status ok">{{ result.ok_message }}</div>{% endif %}
+
+    {% elif c.stage == "rejected" %}
+      <div class="btn-row">
+        <button disabled>Rejected</button>
+      </div>
+
+    {% elif c.stage == "expired" %}
+      <div class="btn-row"><button disabled>Expired</button></div>
+    {% endif %}
+
+    {% if result and result.error_message %}
+      <div class="card-status err">{{ result.error_message }}</div>
+    {% endif %}
+  {% endif %}
+</div>

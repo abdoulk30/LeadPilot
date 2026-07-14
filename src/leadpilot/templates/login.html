@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Log in — LeadPilot{% endblock %}
+{% block body %}
+{# §6a: plain email+password card, centered, minimal. Deliberately NO
+   Google button — login is DB-backed (Decision 013); Google connects
+   later, inside the app (Decision 026). #}
+<div class="login-wrap">
+  <form class="panel login-card" method="post" action="/login/form">
+    <h1>LeadPilot</h1>
+    <p class="dim" style="margin: 4px 0 16px; font-size: 13px;">
+      Sign in to your rep account.
+    </p>
+
+    <label class="field-label" for="email">Email</label>
+    <input type="email" id="email" name="email" autocomplete="username" required autofocus>
+
+    <label class="field-label" for="password">Password</label>
+    <input type="password" id="password" name="password" autocomplete="current-password" required>
+
+    {% if error %}<div class="login-error">{{ error }}</div>{% endif %}
+
+    <div class="btn-row" style="margin-top: 18px;">
+      <button type="submit" class="btn-approve" style="width: 100%;">Sign in</button>
+    </div>
+
+    <p class="faint" style="font-size: 12px; margin: 14px 0 0;">
+      Google connects later, inside the app.
+    </p>
+  </form>
+</div>
+{% endblock %}

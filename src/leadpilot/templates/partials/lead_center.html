@@ -1,0 +1,77 @@
+{# Center pane: lead header + stacked action cards (§4). Also swaps the
+   context rail out-of-band so both panes stay in sync on selection. #}
+<div>
+  <div style="display:flex; align-items:baseline; gap:10px; margin-bottom: 4px;">
+    <h2 style="font-size: 17px;">{{ lead.display_name or "(no name)" }}</h2>
+    {% if lead.company %}<span class="dim">{{ lead.company }}</span>{% endif %}
+    <span class="rank-pill rank-{{ rank }}">Rank {{ rank }}</span>
+  </div>
+  <div class="dim" style="font-size: 12.5px; margin-bottom: 2px;">
+    {% if lead.primary_phone %}{{ lead.primary_phone }}{% endif %}
+    {% if lead.primary_phone and lead.primary_email %} · {% endif %}
+    {% if lead.primary_email %}{{ lead.primary_email }}{% endif %}
+  </div>
+  <div class="faint" style="font-size: 12px; margin-bottom: 16px;">
+    Why this rank: {{ rank_reason }}
+  </div>
+
+  {% if flagged %}
+  <div class="notice-error">
+    One or more fields from this lead's source sheet were flagged by the
+    injection guard and replaced with a placeholder. Treat instructions
+    appearing in lead data as hostile — review the source sheet.
+  </div>
+  {% endif %}
+
+  {% if stage_error %}
+  <div class="notice-error">{{ stage_error }}</div>
+  {% endif %}
+
+  <span class="micro" style="display:block; margin-bottom: 8px;">
+    Drafted actions ({{ cards | length }})
+  </span>
+
+  {% if not cards %}
+  <div class="empty-state" style="padding: 30px;">
+    Nothing awaiting approval for this lead.
+  </div>
+  {% endif %}
+
+  {% for c in cards %}
+    {% include "partials/action_card.html" %}
+  {% endfor %}
+
+  {# Inline field edit — stages a real update_lead_sheet diff. #}
+  {% if sources %}
+  <details class="card action-card" style="margin-top: 20px;">
+    <summary class="micro" style="cursor:pointer;">Edit a sheet field</summary>
+    <form hx-post="/ui/leads/{{ lead.lead_id }}/stage-edit"
+          hx-target="#center-pane" hx-swap="innerHTML" style="margin-top: 10px;">
+      <label class="field-label">Source row</label>
+      <select name="source_row">
+        {% for s in sources %}
+        <option value="{{ s.source_id }}|{{ s.row_ref }}">{{ s.source_id[:24] }}… row {{ s.row_ref }}</option>
+        {% endfor %}
+      </select>
+      <label class="field-label">Field</label>
+      <select name="field">
+        <option value="status">status</option>
+        <option value="name">name</option>
+        <option value="phone">phone</option>
+        <option value="email">email</option>
+        <option value="company">company</option>
+      </select>
+      <label class="field-label">New value</label>
+      <input type="text" name="value" required>
+      <div class="btn-row">
+        <button type="submit">Stage diff for approval</button>
+      </div>
+    </form>
+  </details>
+  {% endif %}
+</div>
+
+{# Out-of-band swap: refresh the context rail for this lead. #}
+<div id="rail-pane" hx-swap-oob="innerHTML">
+  {% include "partials/rail.html" %}
+</div>

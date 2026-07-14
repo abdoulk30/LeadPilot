@@ -1,0 +1,46 @@
+{# §6e stale-write recovery — the rare sanctioned prominent panel.
+   Reassurance FIRST, three-row comparison, then the exits. "Apply my
+   edit anyway" stages a FRESH diff against the new baseline for one
+   more confirmation — never a silent re-apply; it routes back through
+   the normal drafted → awaiting → approved state machine as a NEW
+   staged write (implementation constraint, zero special-case code).
+
+   Note on "who changed it + when": the spec wants it; the Sheets data
+   LeadPilot reads doesn't carry editor identity (that would need the
+   Drive Revisions API). Shown as unavailable rather than guessed —
+   truth in the interface. #}
+<div class="card action-card conflict-panel" id="card-{{ event_id }}">
+  <div class="reassure">Your approved write was held — nothing was overwritten.</div>
+
+  <table class="conflict-rows">
+    <tr>
+      <td class="lbl">What you approved</td>
+      <td class="diff-new">{{ conflict.proposed }}</td>
+    </tr>
+    <tr>
+      <td class="lbl">What the sheet now says</td>
+      <td>{{ conflict.actual if conflict.actual is not none else "(blank)" }}
+        <span class="faint">(changed outside this approval — editor identity isn't available from the Sheets API)</span>
+      </td>
+    </tr>
+    <tr>
+      <td class="lbl">Original value you reviewed</td>
+      <td class="diff-old">{{ conflict.expected if conflict.expected is not none else "(blank)" }}</td>
+    </tr>
+  </table>
+
+  <div class="btn-row">
+    <form hx-post="/ui/leads/{{ lead_id }}/stage-edit"
+          hx-target="#center-pane" hx-swap="innerHTML" style="display:inline">
+      <input type="hidden" name="source_row" value="{{ conflict.source_id }}|{{ conflict.row_ref }}">
+      <input type="hidden" name="field" value="{{ conflict.field }}">
+      <input type="hidden" name="value" value="{{ conflict.proposed }}">
+      <button type="submit" class="btn-approve">Apply my edit anyway (stages a fresh diff)</button>
+    </form>
+    <button hx-get="/ui/leads/{{ lead_id }}"
+            hx-target="#center-pane" hx-swap="innerHTML">Keep the new value</button>
+  </div>
+  <div class="faint" style="font-size: 12px; margin-top: 8px;">
+    Either way, nothing writes without one more explicit approval.
+  </div>
+</div>

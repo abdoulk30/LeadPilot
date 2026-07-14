@@ -1,0 +1,41 @@
+{# "Sheet" quick-switch tab (§4) — center-pane only; queue and rail
+   stay put. Ad-hoc sheet reads + sync live here too, mirroring the
+   Connect drawer's entry point. #}
+<div>
+  <h2 style="font-size: 16px; margin-bottom: 4px;">Sheets</h2>
+  <p class="dim" style="font-size: 13px;">
+    Granted sheets are read automatically each hourly run. Read one now
+    for an immediate one-off look, or sync everything.
+  </p>
+
+  {% if not granted %}
+  <div class="notice-amber">
+    No sheets granted yet — use Connect Google to grant access first.
+  </div>
+  {% else %}
+  <div class="card action-card">
+    <span class="micro">Read a granted sheet now</span>
+    <form hx-post="/ui/adhoc" hx-target="#adhoc-result-tab" hx-swap="innerHTML" style="margin-top: 8px;">
+      <select name="source_id">
+        {% for g in granted %}<option value="{{ g }}">{{ g }}</option>{% endfor %}
+      </select>
+      <div class="btn-row">
+        <button type="submit">Read now</button>
+        <span class="htmx-indicator dim" style="font-size:12px;">Reading…</span>
+      </div>
+    </form>
+    <div id="adhoc-result-tab" style="margin-top: 8px;"></div>
+  </div>
+
+  <div class="card action-card">
+    <span class="micro">Full sync</span>
+    <p class="dim" style="font-size: 12.5px;">
+      Re-reads every granted sheet and updates the queue (the same scan
+      the hourly run performs).
+    </p>
+    <div class="btn-row">
+      <button hx-post="/ui/sync" hx-target="#queue-pane" hx-swap="innerHTML">Sync sheets</button>
+    </div>
+  </div>
+  {% endif %}
+</div>

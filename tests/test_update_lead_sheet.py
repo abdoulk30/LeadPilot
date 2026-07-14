@@ -12,7 +12,7 @@ import threading
 import uuid
 
 from leadpilot import auth, gate
-from leadpilot.connectors.base import LeadRecord
+from leadpilot.connectors.base import LeadRecord, StaleWriteError
 from leadpilot.connectors.google_sheets import GoogleSheetsConnector
 from leadpilot.db import SessionLocal
 from leadpilot.models.contact_history import Channel, ContactHistory, Stage, Tool
@@ -116,6 +116,41 @@ def test_execute_writes_after_approval(db_session):
 
     event = db_session.get(ContactHistory, event_id)
     assert event.stage == Stage.EXECUTED
+
+
+def test_execute_raises_stale_write_error_if_the_cell_changed_since_staging(db_session):
+    """Decision 034: the rep approved a diff built from "New", but the
+    cell changed to something else in between (another rep's edit, or
+    a direct edit in Google's UI) — execute() must not silently
+    overwrite it. Confirms both that update_lead_sheet actually passes
+    expected_current through, and that StaleWriteError isn't swallowed
+    into the generic WriteExecutionFailedAfterApprovalError.
+    """
+    rep_id = _make_rep(db_session)
+    lead_id = _make_lead(db_session)
+    connector = FakeLeadSourceConnector({
+        "sheet_1": [_record("sheet_1", "2", "John Doe", status="New")],
+    })
+    staged = update_lead_sheet.run(
+        db_session, rep_id, lead_id, "sheet_1", "2", "status", "Contacted", connector=connector
+    )
+    event_id = uuid.UUID(staged["event_id"])
+    gate.approve(db_session, event_id, rep_id=rep_id)
+
+    # Simulate the cell changing after the rep reviewed the diff but
+    # before it executes — e.g. someone edited the sheet directly.
+    connector._rows_by_source["sheet_1"][0].status = "Already Contacted By Someone Else"
+
+    with pytest.raises(StaleWriteError):
+        update_lead_sheet.execute(db_session, event_id, connector=connector)
+
+    # The gate was still consumed (single-use survives a failed write —
+    # same trade-off WriteExecutionFailedAfterApprovalError documents),
+    # but the sheet itself was never actually overwritten.
+    event = db_session.get(ContactHistory, event_id)
+    assert event.stage == Stage.EXECUTED
+    assert connector._writes == []
+    assert connector._rows_by_source["sheet_1"][0].status == "Already Contacted By Someone Else"
 
 
 def test_execute_is_single_use_after_approval(db_session):

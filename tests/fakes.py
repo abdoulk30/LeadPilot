@@ -13,7 +13,13 @@ its own real-API tests in test_google_sheets_connector_live.py.
 
 from sqlalchemy.orm import Session
 
-from leadpilot.connectors.base import ChangesSummary, FieldDiff, LeadRecord, LeadSourceConnector
+from leadpilot.connectors.base import (
+    ChangesSummary,
+    FieldDiff,
+    LeadRecord,
+    LeadSourceConnector,
+    StaleWriteError,
+)
 from leadpilot.connectors.google_drive import DriveContentsClient, DriveFileInfo
 
 
@@ -43,11 +49,25 @@ class FakeLeadSourceConnector(LeadSourceConnector):
                 return FieldDiff(source_id=source_id, row_ref=row_ref, field=field_name, current=current, proposed=value)
         raise ValueError(f"Row {row_ref!r} not found in source {source_id!r}")
 
-    def commit_field_write(self, source_id: str, row_ref: str, field_name: str, value: str) -> None:
-        self._writes.append((source_id, row_ref, field_name, value))
+    def commit_field_write(
+        self, source_id: str, row_ref: str, field_name: str, value: str, *, expected_current: str | None
+    ) -> None:
+        # Matches GoogleSheetsConnector's real contract (Decision 034):
+        # verify the live value still matches what the rep reviewed
+        # before writing, raising StaleWriteError rather than silently
+        # overwriting. No ConcurrentWriteError simulation here — that's
+        # a connector-level locking concern with its own real coverage
+        # in test_google_sheets_connector.py, not something this
+        # lightweight, single-threaded fake needs to reproduce.
         for record in self._rows_by_source.get(source_id, []):
             if record.row_ref == row_ref:
+                live_current = getattr(record, field_name, None)
+                if live_current != expected_current:
+                    raise StaleWriteError(source_id, row_ref, field_name, expected_current, live_current)
+                self._writes.append((source_id, row_ref, field_name, value))
                 setattr(record, field_name, value)
+                return
+        raise ValueError(f"Row {row_ref!r} not found in source {source_id!r}")
 
     def detect_changes(self, source_id: str, session: Session) -> ChangesSummary:
         raise NotImplementedError("Not needed by any test using this fake yet")

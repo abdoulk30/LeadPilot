@@ -243,6 +243,18 @@ button:disabled {
 }
 .btn-confirmed:active { transform: none; }
 
+/* Post-flip execution failure (A2: row stays EXECUTED, outcome=FAILED)
+   — must never read as success. Same shape as .btn-confirmed, danger
+   palette instead of success. */
+.btn-failed {
+  color: var(--danger);
+  background: rgba(255, 123, 123, 0.15);
+  border-color: rgba(255, 123, 123, 0.4);
+  cursor: default;
+  font-weight: 600;
+}
+.btn-failed:active { transform: none; }
+
 input[type="text"], input[type="email"], input[type="password"], textarea, select {
   font: inherit;
   font-size: 13px;

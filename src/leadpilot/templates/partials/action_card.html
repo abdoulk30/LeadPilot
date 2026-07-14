@@ -113,6 +113,9 @@
         {% endif %}
       {% else %}
         <div class="btn-row">
+          {% if c.outcome == "failed" %}
+          <button class="btn-failed" disabled>Failed ✗</button>
+          {% else %}
           <button class="btn-confirmed" disabled>
             {% if c.channel == "text" %}Sent ✓
             {% elif c.channel == "email" %}Sent ✓
@@ -120,6 +123,7 @@
             {% elif c.channel == "sheet_edit" %}Written to sheet ✓
             {% endif %}
           </button>
+          {% endif %}
         </div>
       {% endif %}
       {% if result and result.ok_message %}<div class="card-status ok">{{ result.ok_message }}</div>{% endif %}

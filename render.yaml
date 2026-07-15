@@ -1,0 +1,74 @@
+# Render Blueprint (Decision 022: Render, one Web Service + one Cron
+# Job, no separate worker/queue). Deploy: connect this repo in the
+# Render dashboard, it reads this file automatically ("New +" ->
+# "Blueprint"). Both services share one Postgres database (DATABASE_URL).
+#
+# Every `sync: false` env var must be set by hand in the Render
+# dashboard after the first deploy — never put a real secret in this
+# file, it's committed to the repo. See .env.example for what each one
+# is and leadpilot-docs/security/secrets-rotation-runbook.md for
+# rotation. GOOGLE_SERVICE_ACCOUNT_KEY_PATH/GOOGLE_SHEETS_SOURCES are
+# deliberately omitted — Decision 026 superseded them, nothing reads
+# them for new code.
+
+services:
+  - type: web
+    name: leadpilot-web
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt && alembic upgrade head
+    startCommand: uvicorn leadpilot.app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_PICKER_API_KEY
+        sync: false
+      - key: GOOGLE_OAUTH_REDIRECT_URI
+        sync: false
+      - key: CREDENTIAL_ENCRYPTION_KEY
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
+      - key: SLACK_BOT_TOKEN
+        sync: false
+      - key: SLACK_HANDOFF_CHANNEL_IDS
+        sync: false
+      - key: REP_AUTH_SESSION_SECRET
+        sync: false
+
+  - type: cron
+    name: leadpilot-agent-run
+    runtime: python
+    plan: starter
+    schedule: "0 * * * *" # hourly, on the hour — Decision 027 (per-rep batch loop)
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m leadpilot.agent_run
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: CREDENTIAL_ENCRYPTION_KEY
+        sync: false
+      # No GOOGLE_PICKER_API_KEY/GOOGLE_OAUTH_REDIRECT_URI here — the
+      # cron job never runs the OAuth consent flow or serves the
+      # Picker, only fetch_fresh_access_token against already-stored
+      # refresh tokens.

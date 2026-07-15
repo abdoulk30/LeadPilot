@@ -26,7 +26,7 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from leadpilot import agent_loop, locks
+from leadpilot import agent_loop, gate, locks
 from leadpilot.db import SessionLocal
 from leadpilot.models.agent_run_report import AgentRunReport
 from leadpilot.models.rep import Rep
@@ -97,6 +97,11 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     session = SessionLocal()
     try:
+        expired_count = gate.expire_stale_drafts(session)
+        session.commit()
+        if expired_count:
+            logger.info("Expired %d stale draft(s) past gate.DEFAULT_STALE_AFTER", expired_count)
+
         reps = reps_with_active_google_connection(session)
         if not reps:
             logger.info("No reps with an active Google connection — nothing to run.")

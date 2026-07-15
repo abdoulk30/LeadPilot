@@ -67,6 +67,7 @@ class DriveContentsClient(ABC):
 
 FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 SPREADSHEET_MIME_TYPE = "application/vnd.google-apps.spreadsheet"
+PDF_MIME_TYPE = "application/pdf"
 
 
 class RepNotConnectedError(ValueError):

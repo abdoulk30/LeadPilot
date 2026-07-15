@@ -5,6 +5,9 @@ correctness depends on actual transaction/row-locking behavior.
 
 import threading
 import uuid
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import update
 
 from leadpilot import auth, gate
 from leadpilot.db import SessionLocal
@@ -95,6 +98,83 @@ def test_reject_then_cannot_approve_or_execute(db_session):
 
     assert gate.approve(db_session, event.event_id, rep_id=rep_id) is False
     assert gate.try_execute(db_session, event.event_id) is False
+
+
+def _backdate(session, event_id: uuid.UUID, when: datetime) -> None:
+    """Bypasses ContactHistory.timestamp's onupdate=func.now() — an
+    explicit value in the UPDATE's SET clause wins over the column
+    default, so this reliably simulates an old row for expiry tests.
+    """
+    session.execute(update(ContactHistory).where(ContactHistory.event_id == event_id).values(timestamp=when))
+
+
+def test_expire_stale_drafts_expires_old_awaiting_approval_rows(db_session):
+    lead_id = _make_lead(db_session)
+    event = gate.create_draft(db_session, lead_id=lead_id, channel=Channel.TEXT, tool=Tool.SEND_LEAD_TEXT)
+    _backdate(db_session, event.event_id, datetime.now(timezone.utc) - timedelta(days=8))
+
+    expired_count = gate.expire_stale_drafts(db_session, stale_after=timedelta(days=7))
+
+    assert expired_count == 1
+    db_session.refresh(event)
+    assert event.stage == Stage.EXPIRED
+
+
+def test_expire_stale_drafts_expires_old_approved_rows_too(db_session):
+    lead_id = _make_lead(db_session)
+    rep_id = _make_rep(db_session)
+    event = gate.create_draft(db_session, lead_id=lead_id, channel=Channel.TEXT, tool=Tool.SEND_LEAD_TEXT)
+    gate.approve(db_session, event.event_id, rep_id=rep_id)
+    _backdate(db_session, event.event_id, datetime.now(timezone.utc) - timedelta(days=8))
+
+    expired_count = gate.expire_stale_drafts(db_session, stale_after=timedelta(days=7))
+
+    assert expired_count == 1
+    db_session.refresh(event)
+    assert event.stage == Stage.EXPIRED
+
+
+def test_expire_stale_drafts_does_not_touch_recent_rows(db_session):
+    lead_id = _make_lead(db_session)
+    event = gate.create_draft(db_session, lead_id=lead_id, channel=Channel.TEXT, tool=Tool.SEND_LEAD_TEXT)
+    # Fresh row, well under the threshold.
+
+    expired_count = gate.expire_stale_drafts(db_session, stale_after=timedelta(days=7))
+
+    assert expired_count == 0
+    db_session.refresh(event)
+    assert event.stage == Stage.AWAITING_REP_APPROVAL
+
+
+def test_expire_stale_drafts_does_not_touch_terminal_stage_rows(db_session):
+    """Already-executed/rejected/expired rows have nothing left to
+    protect — must not be touched even if very old.
+    """
+    lead_id = _make_lead(db_session)
+    rep_id = _make_rep(db_session)
+    event = gate.create_draft(db_session, lead_id=lead_id, channel=Channel.TEXT, tool=Tool.SEND_LEAD_TEXT)
+    gate.approve(db_session, event.event_id, rep_id=rep_id)
+    gate.try_execute(db_session, event.event_id)
+    _backdate(db_session, event.event_id, datetime.now(timezone.utc) - timedelta(days=30))
+
+    expired_count = gate.expire_stale_drafts(db_session, stale_after=timedelta(days=7))
+
+    assert expired_count == 0
+    db_session.refresh(event)
+    assert event.stage == Stage.EXECUTED
+
+
+def test_expired_draft_can_no_longer_be_approved_or_executed(db_session):
+    lead_id = _make_lead(db_session)
+    rep_id = _make_rep(db_session)
+    event = gate.create_draft(db_session, lead_id=lead_id, channel=Channel.TEXT, tool=Tool.SEND_LEAD_TEXT)
+    _backdate(db_session, event.event_id, datetime.now(timezone.utc) - timedelta(days=8))
+    gate.expire_stale_drafts(db_session, stale_after=timedelta(days=7))
+
+    assert gate.approve(db_session, event.event_id, rep_id=rep_id) is False
+    assert gate.try_execute(db_session, event.event_id) is False
+    db_session.refresh(event)
+    assert event.stage == Stage.EXPIRED
 
 
 def test_lead_id_survives_dedup_style_lookup(db_session):

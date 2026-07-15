@@ -8,14 +8,33 @@ expected prior stage. That's what makes "single-use" true: if two
 concurrent requests both try to execute the same event, only one
 UPDATE can match `stage = 'approved'` — the other sees zero rows
 affected and does nothing. See architecture/state-schema.md.
+
+Security-review fix (2026-07-15, pen-test-checklist.md "Confirm an
+expired approval token is rejected, not just a missing one"):
+`Stage.EXPIRED` was defined in the enum from the start but nothing
+ever actually set it — a draft from weeks ago was exactly as
+approvable as one from a minute ago. expire_stale_drafts() closes
+that; see its own docstring for the staleness threshold and where
+it's meant to be called from.
 """
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from leadpilot.models.contact_history import Channel, ContactHistory, Stage, Tool
+
+# Judgment call, not a PRD/product-specified value — flag for Marc/
+# Abdoul to confirm or override. Reasoning: a rep might genuinely not
+# open LeadPilot every single day, so anything shorter risks expiring
+# a draft the rep just hasn't gotten to yet; anything much longer
+# defeats the point (the lead's real-world situation — did they
+# already reply, did the sheet's status change — can easily be stale
+# by then, and an old draft being approved against current context
+# that's moved on is exactly the risk this closes).
+DEFAULT_STALE_AFTER = timedelta(days=7)
 
 
 def create_draft(
@@ -95,3 +114,32 @@ def reject(session: Session, event_id: uuid.UUID, rep_id: uuid.UUID) -> bool:
         .values(stage=Stage.REJECTED, rep_id=rep_id)
     )
     return result.rowcount == 1
+
+
+def expire_stale_drafts(session: Session, stale_after: timedelta = DEFAULT_STALE_AFTER) -> int:
+    """Transitions every AWAITING_REP_APPROVAL or APPROVED row whose
+    `timestamp` (mutated on every stage transition, so this reads as
+    "how long has it sat in its current stage") is older than
+    `stale_after` to EXPIRED. Single bulk UPDATE, same atomic-transition
+    discipline as approve()/try_execute()/reject() — a row concurrently
+    approved or executed between the cutoff check and this UPDATE
+    simply won't match the stage filter anymore and is left alone, not
+    raced against.
+
+    Meant to be called once per batch cycle (leadpilot.agent_run),
+    not per-rep — staleness is a property of the row's own age, not
+    tied to any specific rep's run. Safe to call from anywhere else
+    too (idempotent — re-running finds nothing left to expire).
+
+    Returns the number of rows expired, for the caller to log/report.
+    """
+    cutoff = datetime.now(timezone.utc) - stale_after
+    result = session.execute(
+        update(ContactHistory)
+        .where(
+            ContactHistory.stage.in_([Stage.AWAITING_REP_APPROVAL, Stage.APPROVED]),
+            ContactHistory.timestamp < cutoff,
+        )
+        .values(stage=Stage.EXPIRED)
+    )
+    return result.rowcount

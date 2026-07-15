@@ -31,6 +31,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from leadpilot.connectors.google_drive import PDF_MIME_TYPE
 from leadpilot.injection_guard import FLAGGED_PLACEHOLDER
 from leadpilot.models.contact_history import (
     Channel,
@@ -270,6 +271,15 @@ def timeline(session: Session, lead_id: uuid.UUID, current_rep_id: uuid.UUID) ->
 # A document only counts as present if a folder file matches its name
 # keywords AND is a strict .pdf AND is >5KB — prevents false-positive
 # "docs complete" handoffs on empty/invalid files.
+#
+# Security-review fix (2026-07-15, pen-test-checklist.md "Non-PDF file
+# renamed with a .pdf extension"): the PDF check used to be the
+# filename's ".pdf" suffix only — a plain-text or executable file
+# renamed to end in ".pdf" passed cleanly. verify_drive_contents
+# already returns Drive's own real mime_type for every file (Drive
+# classifies by actual content, not the name), so this now requires
+# BOTH the filename ending in .pdf AND mime_type == PDF_MIME_TYPE —
+# the data needed for this was already there, just unused.
 
 MIN_DOC_BYTES = 5 * 1024
 
@@ -278,6 +288,10 @@ REQUIRED_DOCS = (
     ("Bank statements", lambda n: "bank" in n and "statement" in n),
     ("Prequal questionnaire", lambda n: "prequal" in n or "questionnaire" in n),
 )
+
+
+def _is_real_pdf(f: dict) -> bool:
+    return (f.get("name") or "").lower().endswith(".pdf") and f.get("mime_type") == PDF_MIME_TYPE
 
 
 def doc_checklist(files: list[dict]) -> list[dict]:
@@ -289,17 +303,13 @@ def doc_checklist(files: list[dict]) -> list[dict]:
     results = []
     for label, matches in REQUIRED_DOCS:
         candidates = [f for f in files if matches((f.get("name") or "").lower())]
-        valid = [
-            f for f in candidates
-            if (f.get("name") or "").lower().endswith(".pdf")
-            and (f.get("size_bytes") or 0) > MIN_DOC_BYTES
-        ]
+        valid = [f for f in candidates if _is_real_pdf(f) and (f.get("size_bytes") or 0) > MIN_DOC_BYTES]
         detail = None
         if valid:
             detail = valid[0]["name"]
         elif candidates:
             f = candidates[0]
-            if not (f.get("name") or "").lower().endswith(".pdf"):
+            if not _is_real_pdf(f):
                 detail = f"{f['name']} — not a PDF, doesn't count"
             else:
                 detail = f"{f['name']} — under 5KB, doesn't count"

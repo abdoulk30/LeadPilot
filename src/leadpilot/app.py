@@ -6,6 +6,7 @@ use ui.require_rep_ui, which enforces the same auth.get_rep_for_signed_token
 chain but redirects to /login instead of returning 401 JSON.
 """
 
+import logging
 from collections.abc import Generator
 from pathlib import Path
 
@@ -19,6 +20,8 @@ from leadpilot import auth, google_credentials, google_oauth
 from leadpilot.config import settings
 from leadpilot.db import SessionLocal
 from leadpilot.models.rep import Rep
+
+logger = logging.getLogger("leadpilot.auth_guard")
 
 app = FastAPI(title="LeadPilot")
 
@@ -48,11 +51,18 @@ def require_rep(
     or contact data — log the attempt and take no further action.'
     Every endpoint that touches lead/contact data should depend on
     this rather than reading the cookie itself.
+
+    testing/eval-suite.md Case 6 requires the attempt itself be logged,
+    not just rejected — the PRD line above was previously only quoted
+    in this docstring, never actually implemented. No cookie value is
+    ever included in the log line (it's a live session credential).
     """
     if leadpilot_session is None:
+        logger.warning("Rejected unauthenticated request: no session cookie present")
         raise HTTPException(status_code=401, detail="Not authenticated")
     rep = auth.get_rep_for_signed_token(db, leadpilot_session)
     if rep is None:
+        logger.warning("Rejected unauthenticated request: session cookie present but invalid/expired")
         raise HTTPException(status_code=401, detail="Not authenticated")
     return rep
 

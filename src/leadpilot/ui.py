@@ -29,6 +29,7 @@ tools' own tests.
 """
 
 import json
+import logging
 import uuid
 from pathlib import Path
 
@@ -64,6 +65,8 @@ from leadpilot.tools import (
     verify_drive_contents,
 )
 from leadpilot.tools.fetch_all_leads import RunAlreadyInProgressError
+
+logger = logging.getLogger("leadpilot.auth_guard")
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -120,10 +123,16 @@ def require_rep_ui(
     leadpilot_session: str | None = Cookie(default=None),
     db: Session = Depends(get_db_ui),
 ) -> Rep:
+    """testing/eval-suite.md Case 6: an unauthenticated request must be
+    logged, not just rejected — see app.py's require_rep for the same
+    fix on the JSON API side.
+    """
     if leadpilot_session is None:
+        logger.warning("Rejected unauthenticated UI request: no session cookie present")
         raise LoginRequiredError()
     rep = auth.get_rep_for_signed_token(db, leadpilot_session)
     if rep is None:
+        logger.warning("Rejected unauthenticated UI request: session cookie present but invalid/expired")
         raise LoginRequiredError()
     return rep
 

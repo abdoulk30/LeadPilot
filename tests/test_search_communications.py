@@ -11,6 +11,7 @@ import pytest
 
 from leadpilot import auth
 from leadpilot.connectors.google_sheets import RepNotConnectedError
+from leadpilot.models.leads import Lead
 from leadpilot.tools.base import all_tools
 from leadpilot.tools.search_communications import search_communications
 
@@ -76,6 +77,13 @@ def _make_rep(session) -> uuid.UUID:
     return rep.rep_id
 
 
+def _make_lead(session, **kwargs) -> Lead:
+    lead = Lead(**kwargs)
+    session.add(lead)
+    session.flush()
+    return lead
+
+
 def _gmail_with_one_message(message_id="msg1", **overrides) -> FakeGmailService:
     headers = {
         "From": overrides.get("from_", "lead@example.com"),
@@ -134,9 +142,11 @@ def test_email_search_flags_attachments(db_session):
     assert result["emails"][0]["has_attachment"] is True
 
 
-def test_name_identifier_does_not_search_sms(db_session):
-    """A name/company identifier only searches email — SMS has no
-    free-text body search available (documented limitation).
+def test_name_identifier_with_no_matching_lead_does_not_search_sms(db_session):
+    """A name/company identifier with no resolvable Lead has no phone
+    number to search SMS with at all — the real, remaining limitation
+    (see test_name_identifier_resolves_lead_and_searches_their_phone_too
+    for the case where a Lead *does* resolve).
     """
     rep_id = _make_rep(db_session)
     fake_twilio = FakeTwilioClient()
@@ -194,6 +204,67 @@ def test_phone_identifier_dedupes_messages_appearing_in_both_directions(db_sessi
     )
 
     assert len(result["texts"]) == 1
+
+
+def test_phone_search_expands_to_the_leads_other_identifiers(db_session):
+    """testing/eval-suite.md Case 4: the rep searches by John Doe's
+    phone number, but he also has an email and company on file — email
+    results tied to those other identifiers must still surface, not
+    just messages matching the phone number literally.
+    """
+    rep_id = _make_rep(db_session)
+    _make_lead(
+        db_session, display_name="John Doe", primary_phone="+15550100001",
+        primary_email="john.doe@acmefunding.example", company="Acme Funding",
+    )
+    fake_gmail = _gmail_with_one_message()
+
+    search_communications(
+        db_session, rep_id=rep_id, identifier="+15550100001", gmail_service=fake_gmail
+    )
+
+    assert len(fake_gmail.list_calls) == 1
+    query = fake_gmail.list_calls[0]["q"]
+    assert "john.doe@acmefunding.example" in query
+    assert "+15550100001" in query
+    assert '"John Doe"' in query
+    assert '"Acme Funding"' in query
+
+
+def test_name_identifier_resolves_lead_and_searches_their_phone_too(db_session):
+    """The narrowed version of the old SMS limitation: once "Acme Corp"
+    resolves to a real Lead with a phone number on file, SMS search
+    fires using *that* phone number — Case 4 expects texts, not just
+    emails, to come back regardless of which identifier the rep typed.
+    """
+    rep_id = _make_rep(db_session)
+    _make_lead(db_session, display_name="Jane Smith", primary_phone="+15550199999", company="Acme Corp")
+    fake_twilio = FakeTwilioClient(
+        by_from={"+15550199999": [_FakeTwilioMessage("SM9", "+15550199999", "+15550000000", "hi")]},
+    )
+
+    result = search_communications(
+        db_session, rep_id=rep_id, identifier="Acme Corp",
+        gmail_service=FakeGmailService(), twilio_client=fake_twilio,
+    )
+
+    assert len(result["texts"]) == 1
+    assert {"from_": "+15550199999", "to": None} in fake_twilio.list_calls
+
+
+def test_falls_back_to_raw_identifier_when_no_lead_matches(db_session):
+    """An identifier with no resolvable Lead (e.g. an external contact
+    not yet in the system) searches literally, same as before this fix
+    — preserves the original behavior for that case.
+    """
+    rep_id = _make_rep(db_session)
+    fake_gmail = FakeGmailService()
+
+    search_communications(
+        db_session, rep_id=rep_id, identifier="nobody-in-the-system@example.com", gmail_service=fake_gmail
+    )
+
+    assert fake_gmail.list_calls == [{"userId": "me", "q": "nobody-in-the-system@example.com"}]
 
 
 def test_raises_if_rep_never_connected_google(db_session):

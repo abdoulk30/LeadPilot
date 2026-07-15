@@ -5,6 +5,23 @@ fetch_all_leads as needing no approval gate) — searches a lead's email
 and text history by any known identifier (email, phone, full name, or
 company name).
 
+Lead-aware identifier expansion (testing/eval-suite.md Case 4, fixed
+2026-07-14): a rep searching by *one* identifier (e.g. a phone number)
+must still surface communications tied to that same lead's *other*
+known identifiers (email, name, company) — a message that only
+mentions the lead's email wouldn't otherwise turn up. Resolves the
+provided identifier to a canonical Lead the same way the UI's search
+route already does for its identity header (exact phone, exact email,
+substring match on name/company), then searches Gmail using an OR
+query across every non-null identifier that lead actually has — not
+just the one the rep typed. Falls back to a literal search on the raw
+identifier if it doesn't resolve to any known lead (e.g. an external
+number/address not yet in the system), preserving the original
+behavior for that case. Twilio search targets the resolved lead's own
+phone number when one exists, rather than only the rep-typed string —
+same "look up the lead's own field, don't trust a caller-supplied
+value" pattern every other tool in this codebase already follows.
+
 Two real API limitations, documented here rather than silently
 papered over:
 
@@ -15,14 +32,17 @@ papered over:
    results is fetched — no pagination handling yet, since neither the
    PRD nor an eval case specifies a page-size/pagination requirement.
 
-2. SMS search (Twilio) only runs for phone-number-shaped identifiers.
-   Twilio's Messages resource filters by exact From/To phone number,
-   not free text — there's no way to search SMS body content for a
-   name or company via the basic Messages API. A name/company search
-   only returns email results; texts stays empty for those. This is a
-   real, load-bearing gap in what this tool can do for name/company
-   lookups against SMS specifically, not an oversight to quietly work
-   around later.
+2. SMS search (Twilio) only runs against a real phone number — either
+   the rep typed one, or the identifier resolved to a known Lead that
+   has one on file (Case 4: searching "Acme Corp" should still surface
+   that lead's texts, found via *their* phone number, not the company
+   name). Twilio's Messages resource filters by exact From/To phone
+   number, not free text, so there's genuinely no way to search SMS
+   body content by name/company directly — the gap that remains is
+   narrower than it used to be: a name/company identifier with no
+   resolvable Lead (nothing in the system yet) still returns no texts,
+   since there's no phone number to search with at all. Not an
+   oversight to quietly work around later.
 
 **Live-verification status:** same caveat as send_lead_text (Issue
 005) for the Twilio half — untested against the real API. The Gmail
@@ -35,11 +55,13 @@ import uuid
 
 from google.oauth2.credentials import Credentials as GoogleCredentials
 from googleapiclient.discovery import build
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from leadpilot import google_oauth
 from leadpilot.config import settings
 from leadpilot.connectors.google_sheets import RepNotConnectedError
+from leadpilot.models.leads import Lead
 from leadpilot.tools.base import tool
 
 _PHONE_CHARS = re.compile(r"[\s\-()+ ]")
@@ -48,6 +70,38 @@ _PHONE_CHARS = re.compile(r"[\s\-()+ ]")
 def _looks_like_phone(identifier: str) -> bool:
     stripped = _PHONE_CHARS.sub("", identifier)
     return stripped.isdigit() and len(stripped) >= 7
+
+
+def _find_lead_by_identifier(session: Session, identifier: str) -> Lead | None:
+    """Same resolution ui.py's search route already uses for its lead-
+    identity header: exact phone, exact (lowercased) email, or a
+    substring match on name/company. Kept here too (not just in ui.py)
+    since this tool's own documented contract — searching "across all
+    of a lead's known identifiers" — depends on it; a caller shouldn't
+    have to duplicate this resolution correctly for the tool to work.
+    """
+    stmt = select(Lead).where(
+        (Lead.primary_phone == identifier)
+        | (Lead.primary_email == identifier.lower())
+        | (Lead.display_name.ilike(f"%{identifier}%"))
+        | (Lead.company.ilike(f"%{identifier}%"))
+    )
+    return session.execute(stmt).scalars().first()
+
+
+def _gmail_query_for(lead: Lead | None, fallback_identifier: str) -> str:
+    if lead is None:
+        return fallback_identifier
+    terms = []
+    if lead.primary_email:
+        terms.append(lead.primary_email)
+    if lead.primary_phone:
+        terms.append(lead.primary_phone)
+    if lead.display_name:
+        terms.append(f'"{lead.display_name}"')
+    if lead.company:
+        terms.append(f'"{lead.company}"')
+    return " OR ".join(terms) if terms else fallback_identifier
 
 
 @tool(
@@ -90,6 +144,8 @@ def search_communications(
 
     results: dict = {"identifier": identifier, "emails": [], "texts": []}
 
+    lead = _find_lead_by_identifier(session, identifier)
+
     if gmail_service is None:
         access_token = google_oauth.get_fresh_access_token(session, rep_id)
         if access_token is None:
@@ -100,7 +156,8 @@ def search_communications(
         creds = GoogleCredentials(token=access_token)
         gmail_service = build("gmail", "v1", credentials=creds)
 
-    list_response = gmail_service.users().messages().list(userId="me", q=identifier).execute()
+    gmail_query = _gmail_query_for(lead, identifier)
+    list_response = gmail_service.users().messages().list(userId="me", q=gmail_query).execute()
     for stub in list_response.get("messages", []):
         detail = (
             gmail_service.users()
@@ -128,14 +185,21 @@ def search_communications(
             }
         )
 
-    if _looks_like_phone(identifier):
+    # Search using the resolved lead's own phone number when there is
+    # one — same "trust the lead record, not the caller-supplied
+    # value" reasoning as _gmail_query_for. Falls back to the raw
+    # identifier only when it isn't tied to any known lead.
+    phone_to_search = (lead.primary_phone if lead and lead.primary_phone else None) or (
+        identifier if _looks_like_phone(identifier) else None
+    )
+    if phone_to_search:
         if twilio_client is None:
             from twilio.rest import Client
 
             twilio_client = Client(settings.twilio_account_sid, settings.twilio_auth_token)
 
         seen_sids: set[str] = set()
-        for kwargs in ({"from_": identifier}, {"to": identifier}):
+        for kwargs in ({"from_": phone_to_search}, {"to": phone_to_search}):
             for msg in twilio_client.messages.list(**kwargs):
                 if msg.sid in seen_sids:
                     continue

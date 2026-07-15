@@ -1,0 +1,48 @@
+{# Reset all lead data — the rare sanctioned high-stakes confirmation
+   (design spec §4: true modals/prominent confirmations reserved for
+   exactly this kind of moment). Type-to-confirm, not a bare button:
+   this deletes every lead, draft, and history row. Reps, sessions,
+   and Google connections/grants survive. #}
+<div class="drawer-backdrop" hx-on:click="document.getElementById('drawer-slot').innerHTML = ''"></div>
+<div class="drawer">
+  <div class="drawer-head">
+    <h3 style="font-size: 15px;">Reset all lead data</h3>
+    <button hx-on:click="document.getElementById('drawer-slot').innerHTML = ''">✕</button>
+  </div>
+
+  {% if done %}
+  <div class="card-status ok" style="font-size: 13px;">
+    Wiped: {{ counts.leads }} leads, {{ counts.history }} history rows,
+    {{ counts.source_rows }} source-row mappings, {{ counts.reports }} agent
+    reports. Your login and Google connection were kept.
+  </div>
+  <div class="btn-row">
+    <button hx-on:click="document.getElementById('drawer-slot').innerHTML = ''">Close</button>
+  </div>
+
+  {% else %}
+  <div class="notice-error">
+    This permanently deletes <strong>every lead, staged draft, contact-history
+    row, and agent run report</strong> — for all reps, since leads are shared.
+    There is no undo.
+  </div>
+  <p class="dim" style="font-size: 12.5px;">
+    Kept: rep accounts, logins, Google connections and granted files —
+    you won't need to reconnect anything. Re-ingest afterward with
+    “Read now” or “Sync sheets”.
+  </p>
+
+  {% if error %}<div class="notice-error">{{ error }}</div>{% endif %}
+
+  <form hx-post="/ui/reset-data" hx-target="#drawer-slot" hx-swap="innerHTML">
+    <label class="field-label" for="confirm-text">Type RESET to confirm</label>
+    <input type="text" id="confirm-text" name="confirm" autocomplete="off"
+           placeholder="RESET" required>
+    <div class="btn-row">
+      <button type="submit" class="btn-danger-ghost">Wipe all lead data</button>
+      <button type="button"
+              hx-on:click="document.getElementById('drawer-slot').innerHTML = ''">Cancel</button>
+    </div>
+  </form>
+  {% endif %}
+</div>

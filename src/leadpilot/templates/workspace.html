@@ -57,6 +57,14 @@
       <option value="low-pulse">Low pulse</option>
       <option value="crystal">Crystal ping</option>
     </select>
+
+    <span class="micro" style="display:block; margin-top: 14px;">Danger zone</span>
+    <div class="btn-row" style="margin-top: 6px;">
+      <button class="btn-danger-ghost" style="font-size: 12px;"
+              hx-get="/ui/reset" hx-target="#drawer-slot" hx-swap="innerHTML">
+        Reset all lead data…
+      </button>
+    </div>
   </div>
 
   {# Three-pane resizable workspace (§4). #}

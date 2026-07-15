@@ -750,6 +750,62 @@ def search_results(
     )
 
 
+# ---- Reset all lead data (rep-requested wipe, 2026-07-15) ----------------
+
+
+@router.get("/ui/reset", response_class=HTMLResponse)
+def reset_drawer(request: Request, rep: Rep = Depends(require_rep_ui)):
+    return templates.TemplateResponse(
+        request, "partials/reset_drawer.html", {"done": False, "error": None}
+    )
+
+
+@router.post("/ui/reset-data", response_class=HTMLResponse)
+def reset_data(
+    request: Request,
+    confirm: str = Form(default=""),
+    rep: Rep = Depends(require_rep_ui),
+    db: Session = Depends(get_db_ui),
+):
+    """Wipes every lead and everything hanging off leads — for a clean
+    re-ingest during testing/onboarding. Deliberately spares reps,
+    sessions, and Google credentials/grants (reconnecting OAuth is the
+    expensive part of setup). Requires the typed confirmation; a bare
+    POST without it changes nothing.
+    """
+    if confirm.strip().upper() != "RESET":
+        return templates.TemplateResponse(
+            request,
+            "partials/reset_drawer.html",
+            {"done": False, "error": "Confirmation text didn't match — nothing was deleted."},
+        )
+
+    from leadpilot.models.agent_run_report import AgentRunReport
+    from leadpilot.models.dedup import LeadSourceRow
+    from leadpilot.models.run_lock import LeadActionLock, SheetCellLock
+
+    counts = {
+        "history": db.query(ContactHistory).delete(),
+        "source_rows": db.query(LeadSourceRow).delete(),
+        "reports": db.query(AgentRunReport).delete(),
+    }
+    db.query(LeadActionLock).delete()
+    db.query(SheetCellLock).delete()
+    counts["leads"] = db.query(Lead).delete()
+    db.commit()
+    logger.warning(
+        "rep %s wiped all lead data: %s", rep.rep_id,
+        ", ".join(f"{k}={v}" for k, v in counts.items()),
+    )
+
+    return templates.TemplateResponse(
+        request,
+        "partials/reset_drawer.html",
+        {"done": True, "counts": counts, "error": None},
+        headers={"HX-Trigger": "leads-changed"},
+    )
+
+
 # ---- Connect Google drawer (§6b) ----------------------------------------
 
 

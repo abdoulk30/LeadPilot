@@ -30,6 +30,7 @@ lookup already needed — no extra Sheets API call for the freshness
 check.
 """
 
+import re
 import uuid
 from datetime import timedelta
 
@@ -59,6 +60,92 @@ _HEADER_TO_FIELD = {
     "Company": "company",
     "Status": "status",
 }
+
+# Real intake sheets don't use our canonical headers — Marc's first
+# live sheet (2026-07-15) had "FIRST NAME"/"LAST NAME"/"PHONE"/"EMAIL"
+# and ingested 600+ leads with every mapped field empty. Matching is
+# case-insensitive with common synonyms; split first/last names are
+# composed in fetch_rows. Writes (stage/commit_field_write) still
+# resolve to the sheet's *actual* header via _resolve_header.
+_HEADER_SYNONYMS = {
+    "name": "name",
+    "full name": "name",
+    "lead name": "name",
+    "phone": "phone",
+    "phone number": "phone",
+    "mobile": "phone",
+    "cell": "phone",
+    "email": "email",
+    "email address": "email",
+    "company": "company",
+    "company name": "company",
+    "business": "company",
+    "business name": "company",
+    "status": "status",
+    "lead status": "status",
+    "stage": "status",
+}
+
+_FIRST_NAME_HEADERS = ("first name", "firstname", "first")
+_LAST_NAME_HEADERS = ("last name", "lastname", "last", "surname")
+
+# "PHONE 2", "Email #3", "cell 2" etc. — real sheets carry multiple
+# contact points per lead (Marc, 2026-07-15). The first non-empty one
+# becomes the lead's primary; every column stays in raw_data, which
+# the interface shows in full on the lead's Source data panel.
+_NUMBERED_SUFFIX = re.compile(r"\s*#?\s*\d+$")
+
+
+def _normalize_header(header: str) -> str:
+    return " ".join(header.strip().lower().split())
+
+
+def _field_for_header(norm: str) -> str | None:
+    field = _HEADER_SYNONYMS.get(norm)
+    if field:
+        return field
+    # numbered variants: "phone 2" -> "phone", "email #3" -> "email"
+    base = _NUMBERED_SUFFIX.sub("", norm)
+    if base != norm:
+        return _HEADER_SYNONYMS.get(base)
+    return None
+
+
+def _map_row_fields(raw: dict[str, str]) -> dict[str, str | None]:
+    """raw sheet row -> canonical field dict, tolerant of header case/
+    synonyms and numbered variants, composing split first/last name
+    columns. Only the *primary* value per field lands here; the full
+    row (every extra phone/email and any custom column) is preserved
+    verbatim in LeadRecord.raw for display."""
+    fields: dict[str, str | None] = {"name": None, "phone": None, "email": None, "company": None, "status": None}
+    first = last = None
+    for header, value in raw.items():
+        value = (value or "").strip() or None
+        norm = _normalize_header(header)
+        field = _field_for_header(norm)
+        if field:
+            if fields[field] is None:
+                fields[field] = value
+        elif norm in _FIRST_NAME_HEADERS:
+            first = value
+        elif norm in _LAST_NAME_HEADERS:
+            last = value
+    if fields["name"] is None and (first or last):
+        fields["name"] = " ".join(p for p in (first, last) if p)
+    return fields
+
+
+def _resolve_header(header_row: list[str], field_name: str) -> str | None:
+    """Find the sheet's actual header for a canonical field — exact
+    canonical name first, then synonyms — so writes land in the real
+    column whatever its casing."""
+    canonical = next((h for h, f in _HEADER_TO_FIELD.items() if f == field_name), None)
+    if canonical in header_row:
+        return canonical
+    for header in header_row:
+        if _HEADER_SYNONYMS.get(_normalize_header(header)) == field_name:
+            return header
+    return None
 
 
 def _column_letter(index: int) -> str:
@@ -198,15 +285,16 @@ class GoogleSheetsConnector(LeadSourceConnector):
     def fetch_rows(self, source_id: str) -> list[LeadRecord]:
         records = []
         for row_ref, raw in self._fetch_raw_rows(source_id):
+            fields = _map_row_fields(raw)
             records.append(
                 LeadRecord(
                     source_id=source_id,
                     row_ref=row_ref,
-                    name=raw.get("Name") or None,
-                    phone=raw.get("Phone") or None,
-                    email=raw.get("Email") or None,
-                    company=raw.get("Company") or None,
-                    status=raw.get("Status") or None,
+                    name=fields["name"],
+                    phone=fields["phone"],
+                    email=fields["email"],
+                    company=fields["company"],
+                    status=fields["status"],
                     raw=raw,
                 )
             )
@@ -215,7 +303,7 @@ class GoogleSheetsConnector(LeadSourceConnector):
     def stage_field_write(self, source_id: str, row_ref: str, field_name: str, value: str) -> FieldDiff:
         for ref, raw in self._fetch_raw_rows(source_id):
             if ref == row_ref:
-                header_name = next((h for h, f in _HEADER_TO_FIELD.items() if f == field_name), field_name)
+                header_name = _resolve_header(list(raw.keys()), field_name) or field_name
                 current = raw.get(header_name) or None
                 return FieldDiff(
                     source_id=source_id, row_ref=row_ref, field=field_name, current=current, proposed=value
@@ -244,8 +332,7 @@ class GoogleSheetsConnector(LeadSourceConnector):
            sheet directly in Google's UI, bypassing LeadPilot (and its
            lock) entirely.
         """
-        header_name = next((h for h, f in _HEADER_TO_FIELD.items() if f == field_name), None)
-        if header_name is None:
+        if field_name not in _HEADER_TO_FIELD.values():
             raise ValueError(f"Unknown field: {field_name!r}")
 
         cell_key = f"{source_id}:{row_ref}:{field_name}"
@@ -255,8 +342,11 @@ class GoogleSheetsConnector(LeadSourceConnector):
 
         try:
             header, rows = self._fetch_header_and_rows(source_id)
-            if header_name not in header:
-                raise ValueError(f"Column {header_name!r} not found in source {source_id!r}'s header row: {header}")
+            # Resolve against the sheet's real header row (synonyms,
+            # any casing) — same tolerance the read path has.
+            header_name = _resolve_header(header, field_name)
+            if header_name is None:
+                raise ValueError(f"No column for field {field_name!r} in source {source_id!r}'s header row: {header}")
 
             live_current = None
             found_row = False

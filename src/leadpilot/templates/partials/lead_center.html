@@ -43,6 +43,29 @@
     {% include "partials/action_card.html" %}
   {% endfor %}
 
+  {# Every column from the source row(s), verbatim — extra phone
+     numbers, alternate emails, custom intake questions. The canonical
+     lead fields above are just the primary mapping; this is the full
+     record (Marc, 2026-07-15: multiple phones/emails per lead must be
+     importable and viewable). #}
+  {% if sources %}
+  <div class="card action-card" style="margin-top: 20px;">
+    <span class="micro">Source data</span>
+    {% for s in sources %}
+      {% if sources | length > 1 %}
+      <div class="faint" style="font-size: 11px; margin-top: 8px;">{{ s.source_id[:30] }}… row {{ s.row_ref }}</div>
+      {% endif %}
+      <table class="diff-table" style="margin-top: 6px;">
+        {% for key, value in s.raw_data.items() %}
+        {% if value %}
+        <tr><td class="lbl">{{ key }}</td><td>{{ value }}</td></tr>
+        {% endif %}
+        {% endfor %}
+      </table>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   {# Inline field edit — stages a real update_lead_sheet diff. #}
   {% if sources %}
   <details class="card action-card" style="margin-top: 20px;">

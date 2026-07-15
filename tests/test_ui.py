@@ -490,3 +490,34 @@ def test_search_when_not_connected_shows_connect_prompt(ws):
     response = ws.client.get("/ui/search/results", params={"q": "queue-lead@example.com"})
     assert response.status_code == 200
     assert "Connect your Google account" in response.text
+
+
+# ---- Reset all lead data (2026-07-15) ----------------------------------
+
+
+def test_reset_requires_typed_confirmation(ws):
+    response = ws.client.post("/ui/reset-data", data={"confirm": "yes"})
+    assert "nothing was deleted" in response.text
+    s = SessionLocal()
+    assert s.get(Lead, ws.lead_id) is not None
+    s.close()
+
+
+def test_reset_wipes_leads_but_keeps_rep(ws):
+    _stage_text(ws, message="Doomed draft")
+    response = ws.client.post("/ui/reset-data", data={"confirm": "RESET"})
+    assert response.status_code == 200
+    assert "Wiped:" in response.text
+    assert response.headers.get("HX-Trigger") == "leads-changed"
+
+    s = SessionLocal()
+    assert s.get(Lead, ws.lead_id) is None
+    assert s.query(ContactHistory).count() == 0
+    assert s.get(Rep, ws.rep_id) is not None  # login survives
+    s.close()
+
+
+def test_reset_requires_auth():
+    client = TestClient(app)
+    response = client.post("/ui/reset-data", data={"confirm": "RESET"}, headers={"HX-Request": "true"})
+    assert response.status_code == 401

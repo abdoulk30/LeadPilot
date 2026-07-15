@@ -691,6 +691,9 @@ def adhoc_sheet(
         request,
         "partials/adhoc_result.html",
         {"error": None, "count": len(rows), "new_count": new_count, "flagged_count": flagged_count},
+        # Tell the workspace queue to refresh — the read happens in a
+        # drawer/tab, so the queue pane can't see it otherwise.
+        headers={"HX-Trigger": "leads-changed"},
     )
 
 

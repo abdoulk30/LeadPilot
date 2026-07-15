@@ -61,8 +61,11 @@
 
   {# Three-pane resizable workspace (§4). #}
   <main class="workspace">
+    {# leads-changed is fired via HX-Trigger by routes that ingest
+       leads outside this pane (ad-hoc sheet reads in the drawers/tabs)
+       so the queue refreshes without a manual reload. #}
     <section class="pane panel" id="queue-pane"
-             hx-get="/ui/queue" hx-trigger="load" hx-swap="innerHTML">
+             hx-get="/ui/queue" hx-trigger="load, leads-changed from:body" hx-swap="innerHTML">
       <div class="empty-state">Loading queue…</div>
     </section>
 

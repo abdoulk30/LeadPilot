@@ -86,8 +86,8 @@ _HEADER_SYNONYMS = {
     "stage": "status",
 }
 
-_FIRST_NAME_HEADERS = ("first name", "firstname", "first")
-_LAST_NAME_HEADERS = ("last name", "lastname", "last", "surname")
+_FIRST_NAME_HEADERS = ("first name", "firstname", "first", "owner first name", "contact first name")
+_LAST_NAME_HEADERS = ("last name", "lastname", "last", "surname", "owner last name", "contact last name")
 
 # "PHONE 2", "Email #3", "cell 2" etc. — real sheets carry multiple
 # contact points per lead (Marc, 2026-07-15). The first non-empty one

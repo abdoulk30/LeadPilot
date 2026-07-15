@@ -71,6 +71,20 @@ def upsert_lead_for_record(session: Session, source_id: str, record: LeadRecord)
     matching_lead = find_matching_lead(session, original_phone, original_email)
     if matching_lead is not None:
         lead_id = matching_lead.lead_id
+        # Enrichment on dedup (Marc, 2026-07-15): the same person often
+        # appears on an intake sheet with no company column AND a
+        # fuller sheet with Business Name etc. Fill the canonical
+        # lead's *blank* fields from the new source — never overwrite
+        # a value that's already there (first source stays
+        # authoritative for conflicts; this only closes gaps).
+        for lead_attr, record_value in (
+            ("display_name", record.name),
+            ("primary_phone", record.phone),
+            ("primary_email", record.email),
+            ("company", record.company),
+        ):
+            if getattr(matching_lead, lead_attr) is None and record_value:
+                setattr(matching_lead, lead_attr, record_value)
     else:
         new_lead = Lead(
             display_name=record.name,

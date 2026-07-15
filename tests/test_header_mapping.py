@@ -74,3 +74,20 @@ def test_rows_without_any_contact_fields_are_skipped():
     legend = _map_row_fields({"TIME STAMP": "", "FIRST NAME": "", "LAST NAME": "",
                               "EMAIL": "", "PHONE": "", "What will you use the funds for?": "FUNDED"})
     assert not (legend["name"] or legend["phone"] or legend["email"])
+
+
+def test_owner_name_headers_map():
+    """Marc's fuller sheets name contacts Owner First/Last Name with a
+    Business Name company column."""
+    fields = _map_row_fields({
+        "Business Name": "Keller Logistics",
+        "Owner First Name": "Casey",
+        "Owner Last Name": "Keller",
+        "Phone1": "+15551084000",
+        "Email1": "casey@keller.example",
+        "EIN": "12-3456789",
+    })
+    assert fields["name"] == "Casey Keller"
+    assert fields["company"] == "Keller Logistics"
+    assert fields["phone"] == "+15551084000"
+    assert fields["email"] == "casey@keller.example"

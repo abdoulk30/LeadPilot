@@ -5,7 +5,7 @@
 
      1. navigator.clipboard.writeText() — initiate_lead_call approval
      2. Panel drag-resize (widths persisted per browser)
-     3. Web Audio click sounds (synthesized, no audio files; default OFF)
+     3. Web Audio click sounds (synthesized, no audio files; default glass-tap per Marc 2026-07-15)
      4. Click-feedback glow-ring class toggle
 
    Anything beyond these is scope creep — flag it, don't add it. */
@@ -55,7 +55,7 @@
       el.classList.toggle("selected", el.getAttribute("data-set-pattern") === pattern);
     });
     var soundSel = document.getElementById("sound-select");
-    if (soundSel) soundSel.value = prefs.sound || "off";
+    if (soundSel) soundSel.value = prefs.sound || "glass-tap";
   }
 
   document.addEventListener("click", function (ev) {
@@ -105,7 +105,7 @@
   var audioCtx = null;
 
   function playClick() {
-    var sound = loadPrefs().sound || "off";
+    var sound = loadPrefs().sound || "glass-tap";
     if (sound === "off") return;
     try {
       audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();

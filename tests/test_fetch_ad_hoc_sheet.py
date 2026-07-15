@@ -72,7 +72,8 @@ def test_dedups_against_a_lead_that_already_exists(db_session):
     results = fetch_ad_hoc_sheet.run(db_session, rep_id, "ad_hoc_sheet", connector=connector)
     assert results[0]["lead_id"] == str(existing_lead.lead_id)
 
-    leads = db_session.execute(select(Lead)).scalars().all()
+    result_ids = {uuid.UUID(r["lead_id"]) for r in results}
+    leads = db_session.execute(select(Lead).where(Lead.lead_id.in_(result_ids))).scalars().all()
     assert len(leads) == 1  # no duplicate lead created
 
 
@@ -84,7 +85,7 @@ def test_rerun_is_idempotent(db_session):
     fetch_ad_hoc_sheet.run(db_session, rep_id, "ad_hoc_sheet", connector=connector)
     fetch_ad_hoc_sheet.run(db_session, rep_id, "ad_hoc_sheet", connector=connector)
 
-    rows = db_session.execute(select(LeadSourceRow)).scalars().all()
+    rows = db_session.execute(select(LeadSourceRow).where(LeadSourceRow.source_id == "ad_hoc_sheet")).scalars().all()
     assert len(rows) == 1
 
 

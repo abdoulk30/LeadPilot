@@ -57,7 +57,8 @@ def test_creates_new_leads_from_fresh_rows(db_session):
     names = {r["name"] for r in results}
     assert names == {"John Doe", "Jane Smith"}
 
-    leads = db_session.execute(select(Lead)).scalars().all()
+    result_ids = {uuid.UUID(r["lead_id"]) for r in results}
+    leads = db_session.execute(select(Lead).where(Lead.lead_id.in_(result_ids))).scalars().all()
     assert len(leads) == 2
 
 
@@ -74,7 +75,8 @@ def test_dedups_by_phone_across_two_sources(db_session):
     assert len(results) == 2  # two rows returned...
     assert len({r["lead_id"] for r in results}) == 1  # ...but one canonical lead
 
-    leads = db_session.execute(select(Lead)).scalars().all()
+    result_ids = {uuid.UUID(r["lead_id"]) for r in results}
+    leads = db_session.execute(select(Lead).where(Lead.lead_id.in_(result_ids))).scalars().all()
     assert len(leads) == 1
 
 
@@ -104,11 +106,12 @@ def test_rerun_is_idempotent_not_duplicating_leads(db_session):
         "sheet_a": [_record("sheet_a", "2", "John Doe", phone="555-1111", status="New")],
     })
     fetch_all_leads.run(db_session, rep_id, connector=connector)
-    fetch_all_leads.run(db_session, rep_id, connector=connector)
+    results = fetch_all_leads.run(db_session, rep_id, connector=connector)
 
-    leads = db_session.execute(select(Lead)).scalars().all()
+    result_ids = {uuid.UUID(r["lead_id"]) for r in results}
+    leads = db_session.execute(select(Lead).where(Lead.lead_id.in_(result_ids))).scalars().all()
     assert len(leads) == 1
-    rows = db_session.execute(select(LeadSourceRow)).scalars().all()
+    rows = db_session.execute(select(LeadSourceRow).where(LeadSourceRow.source_id == "sheet_a")).scalars().all()
     assert len(rows) == 1
 
 
@@ -125,7 +128,7 @@ def test_rerun_updates_existing_row_when_source_data_changed(db_session):
     results = fetch_all_leads.run(db_session, rep_id, connector=connector)
 
     assert results[0]["status"] == "Contacted"
-    rows = db_session.execute(select(LeadSourceRow)).scalars().all()
+    rows = db_session.execute(select(LeadSourceRow).where(LeadSourceRow.source_id == "sheet_a")).scalars().all()
     assert len(rows) == 1  # still one row, updated in place, not a duplicate
     assert rows[0].raw_data["Status"] == "Contacted"
 
@@ -187,3 +190,45 @@ def test_live_fetch_all_leads_against_a_real_connected_rep(db_session):
     assert len(results) > 0
     for result in results:
         assert result["source_id"] in row.granted_file_ids
+
+
+def test_dedup_backfills_blank_lead_fields_from_later_source(db_session):
+    """The same person on an intake sheet with no company AND a fuller
+    sheet with Business Name: the canonical lead gains the company
+    (blank-fill only — existing values are never overwritten)."""
+    from fakes import FakeLeadSourceConnector
+    from leadpilot.connectors.base import LeadRecord
+    from leadpilot.models.leads import Lead
+    from leadpilot.tools import fetch_all_leads
+
+    connector = FakeLeadSourceConnector({
+        "intake-sheet": [LeadRecord(
+            source_id="intake-sheet", row_ref="2", name="Casey Keller",
+            phone="+15551084000", email=None, company=None, status=None,
+        )],
+        "full-sheet": [LeadRecord(
+            source_id="full-sheet", row_ref="2", name="C. Keller Different",
+            phone="+15551084000", email="casey@keller.example",
+            company="Keller Logistics", status=None,
+        )],
+    })
+    rep = auth.create_rep(db_session, email=f"{uuid.uuid4()}-backfill@example.com", password="testpassword123")
+    rows = fetch_all_leads.run(db_session, rep.rep_id, connector=connector)
+
+    lead_ids = {r["lead_id"] for r in rows}
+    assert len(lead_ids) == 1  # deduped by phone
+
+    lead = db_session.get(Lead, uuid.UUID(rows[0]["lead_id"]))
+    assert lead.company == "Keller Logistics"      # blank filled
+    assert lead.primary_email == "casey@keller.example"  # blank filled
+    assert lead.display_name == "Casey Keller"     # NOT overwritten
+
+    # cleanup (fetch_all_leads commits)
+    from leadpilot.models.dedup import LeadSourceRow
+    from leadpilot.models.rep import Rep
+    from leadpilot.models.run_lock import AgentRunLock
+    db_session.query(LeadSourceRow).filter(LeadSourceRow.source_id.in_(["intake-sheet", "full-sheet"])).delete(synchronize_session=False)
+    db_session.query(Lead).filter_by(lead_id=lead.lead_id).delete()
+    db_session.query(AgentRunLock).filter_by(rep_id=rep.rep_id).delete()
+    db_session.query(Rep).filter_by(rep_id=rep.rep_id).delete()
+    db_session.commit()

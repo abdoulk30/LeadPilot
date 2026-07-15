@@ -114,7 +114,15 @@
             new google.picker.DocsView(google.picker.ViewId.FOLDERS).setSelectFolderEnabled(true)
           );
         } else {
-          builder.addView(google.picker.ViewId.SPREADSHEETS);
+          // Native Google Sheets only — .xlsx files share Drive's
+          // "spreadsheet" view but the Sheets API can't read them, so
+          // offering them creates grants that can never load
+          // (known-issues Issue 008; proper xlsx support is a future
+          // version). Convert via File → Save as Google Sheets.
+          builder.addView(
+            new google.picker.DocsView(google.picker.ViewId.SPREADSHEETS)
+              .setMimeTypes("application/vnd.google-apps.spreadsheet")
+          );
         }
         builder.build().setVisible(true);
       }

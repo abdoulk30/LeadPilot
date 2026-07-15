@@ -18,7 +18,7 @@
     <label class="field-label">Granted folder</label>
     <select name="folder_id">
       {% for f in folders %}
-      <option value="{{ f }}" {% if f == folder_id %}selected{% endif %}>{{ f }}</option>
+      <option value="{{ f.id }}" {% if f.id == folder_id %}selected{% endif %}>{{ f.name }}</option>
       {% endfor %}
     </select>
     <div class="btn-row">

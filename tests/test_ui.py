@@ -590,3 +590,48 @@ def test_lead_center_suggests_status_vocabulary(ws):
     s.query(LeadSourceRow).filter_by(source_id="ui-test-status-vocab").delete()
     s.commit()
     s.close()
+
+
+# ---- Granted items show Drive titles, not raw ids (2026-07-15) -----------
+
+
+class FakeDriveInfoClient:
+    def __init__(self, infos):
+        self._infos = infos
+
+    def file_info(self, file_id):
+        return self._infos[file_id]
+
+
+def test_connect_drawer_shows_file_names_with_id_reveal(ws, monkeypatch):
+    from leadpilot import google_credentials
+
+    sheet_id = f"ui-test-fileid-{uuid.uuid4()}"
+    folder_id = f"ui-test-folderid-{uuid.uuid4()}"
+    s = SessionLocal()
+    google_credentials.store_credential(s, ws.rep_id, "fake-token")
+    google_credentials.add_granted_file(s, ws.rep_id, sheet_id)
+    google_credentials.add_granted_file(s, ws.rep_id, folder_id)
+    s.commit()
+    s.close()
+
+    fake_drive = FakeDriveInfoClient({
+        sheet_id: {"name": "Q3 Intake Leads", "mimeType": "application/vnd.google-apps.spreadsheet"},
+        folder_id: {"name": "Deal Documents", "mimeType": "application/vnd.google-apps.folder"},
+    })
+    monkeypatch.setattr(ui, "drive_client_factory", lambda db, rep_id: fake_drive)
+
+    response = ws.client.get("/ui/connect")
+    assert "Q3 Intake Leads" in response.text
+    assert "Deal Documents" in response.text
+    assert sheet_id in response.text          # id available behind the reveal
+    assert "show ID" in response.text
+    # The Read-now select must offer only the sheet, not the folder
+    assert response.text.count(f'value="{folder_id}"') == 0 or "Read a sheet" in response.text
+
+    # cleanup: clear grants + credential
+    from leadpilot.models.rep_google_credential import RepGoogleCredential
+    s = SessionLocal()
+    s.query(RepGoogleCredential).filter_by(rep_id=ws.rep_id).delete()
+    s.commit()
+    s.close()

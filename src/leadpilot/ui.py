@@ -295,7 +295,7 @@ def _center_context(db: Session, rep: Rep, lead: Lead, **extra) -> dict:
         "events": queue_builder.timeline(db, lead.lead_id, rep.rep_id),
         "docs": None,
         "docs_error": None,
-        "folder_options": google_credentials.granted_file_ids(db, rep.rep_id),
+        "folder_options": [i for i in granted_items(db, rep.rep_id) if i["is_folder"]],
         "folder_id": None,
         **extra,
     }
@@ -636,10 +636,11 @@ def sheet_tools(
     rep: Rep = Depends(require_rep_ui),
     db: Session = Depends(get_db_ui),
 ):
+    items = granted_items(db, rep.rep_id)
     return templates.TemplateResponse(
         request,
         "partials/sheet_tools.html",
-        {"granted": google_credentials.granted_file_ids(db, rep.rep_id)},
+        {"granted": [i for i in items if not i["is_folder"]]},
     )
 
 
@@ -663,7 +664,7 @@ def docs_tools(
         request,
         "partials/docs_tools.html",
         {
-            "folders": google_credentials.granted_file_ids(db, rep.rep_id),
+            "folders": [i for i in granted_items(db, rep.rep_id) if i["is_folder"]],
             "folder_id": folder_id,
             "docs": docs,
             "files": files,
@@ -718,6 +719,50 @@ def _real_sheets_connector(db: Session, rep_id: uuid.UUID):
     from leadpilot.connectors.google_sheets import GoogleSheetsConnector
 
     return GoogleSheetsConnector(db, rep_id)
+
+
+# file_id -> {"name", "mime"} — process-lifetime cache. Titles rarely
+# change and the rail re-renders on every lead click; without this,
+# each click would cost one Drive metadata call per granted item.
+_file_info_cache: dict[str, dict] = {}
+
+_SPREADSHEET_MIME = "application/vnd.google-apps.spreadsheet"
+_FOLDER_MIME = "application/vnd.google-apps.folder"
+
+
+def granted_items(db: Session, rep_id: uuid.UUID) -> list[dict]:
+    """The rep's granted ids resolved to display names + kind, for
+    every dropdown/list that previously showed raw ids (Marc,
+    2026-07-15). A failed lookup degrades to the id as the name —
+    never blocks rendering.
+    """
+    items = []
+    drive = drive_client_factory(db, rep_id)
+    for file_id in google_credentials.granted_file_ids(db, rep_id):
+        info = _file_info_cache.get(file_id)
+        if info is None:
+            try:
+                client = drive or _real_drive_client(db, rep_id)
+                meta = client.file_info(file_id)
+                info = {"name": meta.get("name") or file_id, "mime": meta.get("mimeType") or ""}
+            except Exception:
+                info = {"name": file_id, "mime": ""}
+            _file_info_cache[file_id] = info
+        items.append(
+            {
+                "id": file_id,
+                "name": info["name"],
+                "is_sheet": info["mime"] == _SPREADSHEET_MIME,
+                "is_folder": info["mime"] == _FOLDER_MIME,
+            }
+        )
+    return items
+
+
+def _real_drive_client(db: Session, rep_id: uuid.UUID):
+    from leadpilot.connectors.google_drive import GoogleDriveClient
+
+    return GoogleDriveClient(db, rep_id)
 
 
 @router.post("/ui/sheets/create-status-column", response_class=HTMLResponse)
@@ -863,14 +908,15 @@ def connect_drawer(
     db: Session = Depends(get_db_ui),
 ):
     connected = google_credentials.get_refresh_token(db, rep.rep_id) is not None
-    granted = google_credentials.granted_file_ids(db, rep.rep_id) if connected else []
+    items = granted_items(db, rep.rep_id) if connected else []
     app_id = settings.google_oauth_client_id.split("-")[0] if settings.google_oauth_client_id else ""
     return templates.TemplateResponse(
         request,
         "partials/connect_drawer.html",
         {
             "connected": connected,
-            "granted": granted,
+            "granted": items,
+            "sheets": [i for i in items if not i["is_folder"]],
             "picker_api_key": settings.google_picker_api_key,
             "picker_app_id": app_id,
         },

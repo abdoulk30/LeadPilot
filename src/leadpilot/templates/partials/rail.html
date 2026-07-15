@@ -28,7 +28,7 @@
             hx-swap="innerHTML" hx-trigger="change" hx-include="this">
       <option value="">Check a granted folder…</option>
       {% for f in folder_options %}
-      <option value="{{ f }}" {% if f == folder_id %}selected{% endif %}>{{ f[:34] }}…</option>
+      <option value="{{ f.id }}" {% if f.id == folder_id %}selected{% endif %}>{{ f.name }}</option>
       {% endfor %}
     </select>
   </form>

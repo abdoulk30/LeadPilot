@@ -109,6 +109,18 @@ class GoogleDriveClient(DriveContentsClient):
         )
         return meta.get("mimeType")
 
+    def file_info(self, file_id: str) -> dict:
+        """Name + mimeType in one metadata call — the interface shows
+        granted items by their real Drive title (Marc, 2026-07-15:
+        raw file ids are unreadable in the grant list), fetched fresh
+        so renames in Drive are reflected."""
+        return (
+            self._client()
+            .files()
+            .get(fileId=file_id, fields="name,mimeType", supportsAllDrives=True)
+            .execute()
+        )
+
     def is_folder(self, file_id: str) -> bool:
         """files.list with a '<id> in parents' query doesn't error for
         a non-folder ID, it just returns no results, so callers that

@@ -49,8 +49,20 @@
     {% if not granted %}
       <div class="faint" style="font-size: 12px;">Nothing granted yet.</div>
     {% endif %}
+    {# Drive titles, not raw ids (Marc, 2026-07-15) — the id stays one
+       click away for debugging/support. #}
     {% for g in granted %}
-      <div class="doc-row"><span class="ok">✓</span> <span style="word-break: break-all; font-size: 11.5px;">{{ g }}</span></div>
+      <div class="doc-row" style="align-items: baseline;">
+        <span class="ok">✓</span>
+        <div style="min-width: 0;">
+          <span style="font-size: 12.5px;">{{ g.name }}</span>
+          {% if g.is_folder %}<span class="faint" style="font-size: 10.5px;"> · folder</span>{% endif %}
+          <details style="display: inline;">
+            <summary class="faint" style="font-size: 10.5px; cursor: pointer; display: inline; list-style: none;">· show ID</summary>
+            <span class="faint" style="font-size: 10.5px; word-break: break-all;">{{ g.id }}</span>
+          </details>
+        </div>
+      </div>
     {% endfor %}
   </div>
 
@@ -61,10 +73,10 @@
     </p>
     <form hx-post="/ui/adhoc" hx-target="#adhoc-result" hx-swap="innerHTML">
       <select name="source_id">
-        {% for g in granted %}<option value="{{ g }}">{{ g[:40] }}…</option>{% endfor %}
+        {% for g in sheets %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
       </select>
       <div class="btn-row">
-        <button type="submit" {% if not granted %}disabled{% endif %}>Read now</button>
+        <button type="submit" {% if not sheets %}disabled{% endif %}>Read now</button>
         <span class="htmx-indicator dim" style="font-size:12px;">Reading…</span>
       </div>
     </form>

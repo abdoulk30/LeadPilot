@@ -17,7 +17,7 @@
     <span class="micro">Read a granted sheet now</span>
     <form hx-post="/ui/adhoc" hx-target="#adhoc-result-tab" hx-swap="innerHTML" style="margin-top: 8px;">
       <select name="source_id">
-        {% for g in granted %}<option value="{{ g }}">{{ g }}</option>{% endfor %}
+        {% for g in granted %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
       </select>
       <div class="btn-row">
         <button type="submit">Read now</button>

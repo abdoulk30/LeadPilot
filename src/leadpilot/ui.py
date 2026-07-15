@@ -372,17 +372,32 @@ def _get_event(db: Session, event_id: uuid.UUID) -> ContactHistory | None:
     return db.get(ContactHistory, event_id)
 
 
+def _render(request: Request, template_name: str, ctx: dict) -> str:
+    return templates.get_template(template_name).render({"request": request, **ctx})
+
+
 def _card_response(
     request: Request, db: Session, rep: Rep, event: ContactHistory,
     edit: bool = False, result: dict | None = None, status_code: int = 200,
 ):
+    """The card partial PLUS an out-of-band refresh of the context
+    rail — approving/rejecting/logging-an-outcome changes the lead's
+    history, and the timeline must reflect it immediately (Marc,
+    2026-07-15: 'every time an action is taken it should be in the
+    history' — the data always was; the rail display was stale).
+    """
     c = queue_builder.describe_event(event, _rep_names(db), rep.rep_id)
-    return templates.TemplateResponse(
-        request,
-        "partials/action_card.html",
-        {"c": c, "edit": edit, "result": result},
-        status_code=status_code,
-    )
+    html = _render(request, "partials/action_card.html", {"c": c, "edit": edit, "result": result})
+
+    lead = db.get(Lead, event.lead_id)
+    if lead is not None:
+        rail_ctx = _center_context(db, rep, lead)
+        html += (
+            '<div id="rail-pane" hx-swap-oob="innerHTML">'
+            + _render(request, "partials/rail.html", rail_ctx)
+            + "</div>"
+        )
+    return HTMLResponse(html, status_code=status_code)
 
 
 @router.get("/ui/actions/{event_id}/card", response_class=HTMLResponse)

@@ -676,3 +676,20 @@ def test_queue_filter_matches_company_and_name(ws):
     s.query(Lead).filter_by(lead_id=filter_lead_id).delete()
     s.commit()
     s.close()
+
+
+def test_card_actions_refresh_the_history_rail(ws):
+    """Approving a call must update the CONTACT HISTORY rail in the
+    same response (OOB swap), not leave it showing the pre-approval
+    snapshot."""
+    event_id = _stage_call(ws)
+    response = ws.client.post(f"/ui/actions/{event_id}/approve")
+    assert 'id="rail-pane" hx-swap-oob="innerHTML"' in response.text
+    assert "Contact history" in response.text  # the rail rode along
+
+    # Log the outcome from the card — the rail in that response must
+    # show the outcome, not "awaiting rep approval".
+    response = ws.client.post(f"/ui/calls/{event_id}/outcome", data={"outcome": "answered"})
+    assert 'hx-swap-oob' in response.text
+    assert "answered" in response.text
+    assert "awaiting rep approval" not in response.text

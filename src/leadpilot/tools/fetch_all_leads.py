@@ -60,14 +60,28 @@ class RunAlreadyInProgressError(Exception):
         "required": ["rep_id"],
     },
 )
-def run(session: Session, rep_id: uuid.UUID, connector: LeadSourceConnector | None = None) -> list[dict]:
+def run(
+    session: Session,
+    rep_id: uuid.UUID,
+    connector: LeadSourceConnector | None = None,
+    manage_run_lock: bool = True,
+) -> list[dict]:
+    """`manage_run_lock=False` is for Step 4's batch runner
+    (leadpilot.agent_run), which holds this rep's AgentRunLock for the
+    *whole* agent run — acquiring again here would see the row locked
+    and false-positive as an overlapping run. Any caller passing False
+    must itself hold the rep's run lock for the duration; every other
+    caller (the UI's sync button, direct invocation) leaves the
+    default and gets the original self-managed mutex behavior.
+    """
     connector = connector or GoogleSheetsConnector(session, rep_id)
     run_by = str(uuid.uuid4())
 
-    if not locks.acquire_run_lock(session, rep_id, run_by=run_by, stale_after=RUN_LOCK_STALE_AFTER):
-        session.rollback()
-        raise RunAlreadyInProgressError(f"A fetch_all_leads run is already in progress for rep {rep_id}")
-    session.commit()  # lock acquisition must be visible to other transactions immediately
+    if manage_run_lock:
+        if not locks.acquire_run_lock(session, rep_id, run_by=run_by, stale_after=RUN_LOCK_STALE_AFTER):
+            session.rollback()
+            raise RunAlreadyInProgressError(f"A fetch_all_leads run is already in progress for rep {rep_id}")
+        session.commit()  # lock acquisition must be visible to other transactions immediately
 
     try:
         results = []
@@ -81,5 +95,6 @@ def run(session: Session, rep_id: uuid.UUID, connector: LeadSourceConnector | No
         session.rollback()
         raise
     finally:
-        locks.release_run_lock(session, rep_id, run_by=run_by)
-        session.commit()
+        if manage_run_lock:
+            locks.release_run_lock(session, rep_id, run_by=run_by)
+            session.commit()

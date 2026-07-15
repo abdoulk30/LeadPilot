@@ -48,6 +48,27 @@ Drive folder, not just a sheet). Group B (Marc): `get_contact_history`,
 prompt-injection validation layer is also built (`injection_guard.py`,
 Decision 006, hooked into `lead_ingest`).
 
+**Step 4 (the agent loop) is built on `marc-step4-agent-loop`**
+(2026-07-14, Decision 037): `src/leadpilot/agent_loop.py` runs PRD
+v1.06 §3b verbatim (frozen, cache-controlled system prompt) through a
+hand-rolled Messages-API tool loop — deliberately not the Agent
+SDK/tool-runner helpers, because the guards hook every tool call:
+`rep_id` is stripped from model-visible schemas and injected
+server-side, `LeadActionLock` (1h cooldown) gates outreach drafts
+(Decision 007's missing caller), and the batch tool surface is
+steps 1–6 only — no execute path, no `log_call_outcome` (an unattended
+agent must not fabricate rep-reported outcomes). `agent_run.py` is the
+cron entrypoint (`python -m leadpilot.agent_run`): per-rep iteration,
+whole-run AgentRunLock (`fetch_all_leads(manage_run_lock=False)`),
+per-run audit rows in `agent_run_reports`. Model: `claude-opus-4-8`
+via `ANTHROPIC_MODEL`. Live evals: `python scripts/run_evals.py`
+(real model, faked Google, ~$1–2 a sweep — never CI); results logged
+in `leadpilot-docs/testing/eval-suite.md`. Two live findings worth
+remembering: `output_config` structured outputs suppressed tool
+calling entirely, and the model refuses to run unless the kickoff
+asserts the authenticated session and lists granted item ids. Still
+to do: deploy the actual Render Cron Job.
+
 **Step 3 (the interface) is built on `marc-interface-build`**
 (2026-07-14, Decision 036): server-rendered Jinja2 + htmx workspace —
 templates in `src/leadpilot/templates/`, routes in `src/leadpilot/ui.py`

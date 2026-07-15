@@ -82,5 +82,13 @@ class Settings(BaseSettings):
     # test channel ID is fine for local dev.
     slack_handoff_channel_ids: str = ""
 
+    # Step 4 — the agent loop (leadpilot.agent_loop / agent_run).
+    # anthropic_api_key is read by the SDK from the environment too;
+    # loading it here keeps .env.local the single local source.
+    anthropic_api_key: str = ""
+    # Opus is the current recommended default for agentic work; swap
+    # via env without a deploy if cost/quality tuning says otherwise.
+    anthropic_model: str = "claude-opus-4-8"
+
 
 settings = Settings()

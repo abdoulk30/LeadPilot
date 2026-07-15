@@ -679,22 +679,68 @@ def adhoc_sheet(
     db: Session = Depends(get_db_ui),
 ):
     before = {row for row in db.execute(select(Lead.lead_id)).scalars()}
+    connector = sheets_connector_factory(db, rep.rep_id)
     try:
-        rows = fetch_ad_hoc_sheet.run(
-            db, rep.rep_id, source_id, connector=sheets_connector_factory(db, rep.rep_id)
-        )
+        rows = fetch_ad_hoc_sheet.run(db, rep.rep_id, source_id, connector=connector)
     except Exception as e:
         return templates.TemplateResponse(request, "partials/adhoc_result.html", {"error": str(e)})
     new_count = sum(1 for r in rows if uuid.UUID(r["lead_id"]) not in before)
     flagged_count = sum(1 for r in rows if r["flagged"])
+
+    # Status-column detection (Marc, 2026-07-15): real intake sheets
+    # often lack one, and without it update_lead_sheet has nowhere to
+    # record pipeline stage. Detection failure never hides the read
+    # result — worst case the prompt just doesn't show.
+    missing_status = False
+    try:
+        checker = connector or _real_sheets_connector(db, rep.rep_id)
+        if hasattr(checker, "has_field_column"):
+            missing_status = not checker.has_field_column(source_id, "status")
+    except Exception:
+        pass
+
     return templates.TemplateResponse(
         request,
         "partials/adhoc_result.html",
-        {"error": None, "count": len(rows), "new_count": new_count, "flagged_count": flagged_count},
+        {
+            "error": None, "count": len(rows), "new_count": new_count,
+            "flagged_count": flagged_count, "missing_status": missing_status,
+            "source_id": source_id,
+        },
         # Tell the workspace queue to refresh — the read happens in a
         # drawer/tab, so the queue pane can't see it otherwise.
         headers={"HX-Trigger": "leads-changed"},
     )
+
+
+def _real_sheets_connector(db: Session, rep_id: uuid.UUID):
+    from leadpilot.connectors.google_sheets import GoogleSheetsConnector
+
+    return GoogleSheetsConnector(db, rep_id)
+
+
+@router.post("/ui/sheets/create-status-column", response_class=HTMLResponse)
+def create_status_column(
+    request: Request,
+    source_id: str = Form(...),
+    rep: Rep = Depends(require_rep_ui),
+    db: Session = Depends(get_db_ui),
+):
+    """Rep-confirmed creation of a Status column in a granted sheet.
+    The confirm click in the prompt IS the rep approval (rep-initiated
+    sheet structure, no lead attached — same precedent as
+    log_call_outcome); the connector call is idempotent.
+    """
+    connector = sheets_connector_factory(db, rep.rep_id) or _real_sheets_connector(db, rep.rep_id)
+    try:
+        header = connector.add_status_column(source_id)
+        return HTMLResponse(
+            f'<div class="card-status ok" style="font-size: 12.5px;">'
+            f"Created a “{header}” column in the sheet. New pipeline stages "
+            f"written from LeadPilot will land there.</div>"
+        )
+    except Exception as e:
+        return HTMLResponse(f'<div class="notice-error">Couldn&#39;t create the column: {e}</div>')
 
 
 # ---- Search (§6h) --------------------------------------------------------

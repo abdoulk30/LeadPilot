@@ -521,3 +521,52 @@ def test_reset_requires_auth():
     client = TestClient(app)
     response = client.post("/ui/reset-data", data={"confirm": "RESET"}, headers={"HX-Request": "true"})
     assert response.status_code == 401
+
+
+# ---- Missing status column prompt + creation (2026-07-15) ----------------
+
+
+def _adhoc_fixture(ws, monkeypatch, status):
+    source_id = f"ui-test-adhoc-{uuid.uuid4()}"
+    connector = FakeLeadSourceConnector({
+        source_id: [LeadRecord(
+            source_id=source_id, row_ref="2", name="Adhoc Lead", phone="+15550004444",
+            email="adhoc@example.com", company="Adhocco", status=status,
+        )]
+    })
+    monkeypatch.setattr(ui, "sheets_connector_factory", lambda db, rep_id: connector)
+    return source_id, connector
+
+
+def test_adhoc_read_prompts_when_status_column_missing(ws, monkeypatch):
+    source_id, connector = _adhoc_fixture(ws, monkeypatch, status=None)
+    response = ws.client.post("/ui/adhoc", data={"source_id": source_id})
+    assert "No Status column found" in response.text
+    assert "create-status-column" in response.text
+    _cleanup_adhoc(source_id)
+
+
+def test_adhoc_read_no_prompt_when_status_column_exists(ws, monkeypatch):
+    source_id, connector = _adhoc_fixture(ws, monkeypatch, status="New")
+    response = ws.client.post("/ui/adhoc", data={"source_id": source_id})
+    assert "No Status column found" not in response.text
+    _cleanup_adhoc(source_id)
+
+
+def test_confirmed_status_column_creation_calls_connector(ws, monkeypatch):
+    source_id, connector = _adhoc_fixture(ws, monkeypatch, status=None)
+    response = ws.client.post("/ui/sheets/create-status-column", data={"source_id": source_id})
+    assert "Created a" in response.text
+    assert connector.status_columns_added == [source_id]
+    _cleanup_adhoc(source_id)
+
+
+def _cleanup_adhoc(source_id):
+    s = SessionLocal()
+    lead_ids = [r.lead_id for r in s.query(LeadSourceRow).filter_by(source_id=source_id).all()]
+    s.query(LeadSourceRow).filter_by(source_id=source_id).delete()
+    for lid in lead_ids:
+        s.query(ContactHistory).filter_by(lead_id=lid).delete()
+        s.query(Lead).filter_by(lead_id=lid).delete()
+    s.commit()
+    s.close()

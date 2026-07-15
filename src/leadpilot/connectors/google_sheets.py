@@ -300,6 +300,37 @@ class GoogleSheetsConnector(LeadSourceConnector):
             )
         return records
 
+    def has_field_column(self, source_id: str, field_name: str = "status") -> bool:
+        """Whether the sheet has any column that maps to `field_name`
+        (canonical name or synonym, any casing)."""
+        header, _ = self._fetch_header_and_rows(source_id)
+        return _resolve_header(header, field_name) is not None
+
+    def add_status_column(self, source_id: str) -> str:
+        """Appends a 'Status' header to the sheet — rep-initiated and
+        popup-confirmed in the interface (2026-07-15, Marc's request:
+        real intake sheets often lack one, and without it
+        update_lead_sheet has nowhere to record pipeline stage).
+
+        Not gate-staged: this is sheet *structure*, tied to no lead,
+        and the explicit typed/clicked confirmation IS the rep's
+        approval — same rep-initiated precedent as log_call_outcome.
+        Idempotent: returns the existing header if one already maps.
+        """
+        header, _ = self._fetch_header_and_rows(source_id)
+        existing = _resolve_header(header, "status")
+        if existing:
+            return existing
+        col_letter = _column_letter(len(header))
+        sheet_id = self._sheet_id_for(source_id)
+        self._client().spreadsheets().values().update(
+            spreadsheetId=sheet_id,
+            range=f"{col_letter}1",
+            valueInputOption="RAW",
+            body={"values": [["Status"]]},
+        ).execute()
+        return "Status"
+
     def stage_field_write(self, source_id: str, row_ref: str, field_name: str, value: str) -> FieldDiff:
         for ref, raw in self._fetch_raw_rows(source_id):
             if ref == row_ref:

@@ -8,4 +8,23 @@
   <span style="color: var(--danger);">{{ flagged_count }} row{{ "s" if flagged_count != 1 else "" }} flagged by the injection guard.</span>
   {% endif %}
 </div>
+
+{% if missing_status %}
+<div class="notice-amber" id="status-column-prompt">
+  <strong>No Status column found in this sheet.</strong>
+  LeadPilot uses Status to track each lead's pipeline stage (New,
+  Contacted, …) and to write approved updates back to your sheet.
+  Please verify in the sheet itself — a differently-named column
+  (e.g. “Lead Status”, “Stage”) would have been detected. If it truly
+  doesn't exist, LeadPilot can add one:
+  <form hx-post="/ui/sheets/create-status-column"
+        hx-target="#status-column-prompt" hx-swap="outerHTML"
+        style="margin-top: 8px;">
+    <input type="hidden" name="source_id" value="{{ source_id }}">
+    <div class="btn-row" style="margin-top: 0;">
+      <button type="submit" class="btn-approve">Yes — create a “Status” column</button>
+    </div>
+  </form>
+</div>
+{% endif %}
 {% endif %}

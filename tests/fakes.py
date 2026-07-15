@@ -72,6 +72,21 @@ class FakeLeadSourceConnector(LeadSourceConnector):
     def detect_changes(self, source_id: str, session: Session) -> ChangesSummary:
         raise NotImplementedError("Not needed by any test using this fake yet")
 
+    # Status-column detection/creation (GoogleSheetsConnector's
+    # duck-typed extras, 2026-07-15) — a row with status=None on every
+    # record models a sheet with no status-like column.
+    def has_field_column(self, source_id: str, field_name: str = "status") -> bool:
+        rows = self._rows_by_source.get(source_id, [])
+        return any(getattr(r, field_name, None) is not None for r in rows)
+
+    def add_status_column(self, source_id: str) -> str:
+        self.status_columns_added = getattr(self, "status_columns_added", [])
+        self.status_columns_added.append(source_id)
+        for record in self._rows_by_source.get(source_id, []):
+            if record.status is None:
+                record.status = ""
+        return "Status"
+
 
 class FakeDriveContentsClient(DriveContentsClient):
     def __init__(self, files_by_folder: dict[str, list[DriveFileInfo]]):

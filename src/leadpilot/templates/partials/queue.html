@@ -24,29 +24,16 @@
 </div>
 {% endif %}
 
-<span class="micro" style="display:block; margin-bottom: 10px;">Prioritized queue · {{ queue | length }}</span>
+<span class="micro" style="display:block; margin-bottom: 6px;">Prioritized queue · {{ queue | length }}</span>
 
-{% if not queue %}
-<div class="empty-state">
-  No leads yet.<br><br>
-  Connect your Google account and sync your sheets to build the queue.
+{# Server-side filter — swaps only the list below so the input keeps
+   focus while typing. #}
+<input type="text" name="q" value="{{ q or '' }}" placeholder="Filter by name or company…"
+       autocomplete="off" style="margin-bottom: 10px; font-size: 12.5px;"
+       hx-get="/ui/queue?list_only=1" hx-target="#queue-list" hx-swap="innerHTML"
+       hx-trigger="keyup changed delay:250ms, search">
+
+<div id="queue-list">
+{% include "partials/queue_list.html" %}
 </div>
-{% endif %}
 
-{% for item in queue %}
-<button class="queue-item{% if item.lead_id == selected_lead_id %} selected{% endif %}"
-        hx-get="/ui/leads/{{ item.lead_id }}"
-        hx-target="#center-pane" hx-swap="innerHTML"
-        title="{{ item.rank_reason }}">
-  {# Company first, then contact name (Marc, 2026-07-15) — reps think
-     in businesses; fall back to the contact when no company. #}
-  <span class="name">
-    <span class="rank-pill rank-{{ item.rank }}">R{{ item.rank }}</span>
-    {{ item.company or item.name }}
-    {% if item.urgent %}<span class="handoff-badge urgent">urgent</span>{% endif %}
-    {% if item.flagged %}<span class="flag-badge" title="A source field was flagged by the injection guard">flagged</span>{% endif %}
-  </span>
-  {% if item.company %}<span class="line" style="color: var(--text);">{{ item.name }}</span>{% endif %}
-  <span class="line">{{ item.line }}</span>
-</button>
-{% endfor %}

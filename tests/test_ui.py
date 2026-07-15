@@ -635,3 +635,44 @@ def test_connect_drawer_shows_file_names_with_id_reveal(ws, monkeypatch):
     s.query(RepGoogleCredential).filter_by(rep_id=ws.rep_id).delete()
     s.commit()
     s.close()
+
+
+# ---- Rep-initiated drafting + queue filter (2026-07-15) -------------------
+
+
+def test_rep_can_stage_text_from_lead_view(ws):
+    response = ws.client.post(
+        f"/ui/leads/{ws.lead_id}/stage-text", data={"message": "Rep-typed message"}
+    )
+    assert response.status_code == 200
+    assert "Rep-typed message" in response.text
+    assert "Approve &amp; send text" in response.text  # normal gate card
+
+    s = SessionLocal()
+    event = s.query(ContactHistory).filter_by(lead_id=ws.lead_id, tool=Tool.SEND_LEAD_TEXT).one()
+    assert event.stage == Stage.AWAITING_REP_APPROVAL
+    s.close()
+
+
+def test_rep_can_stage_call_one_click(ws):
+    response = ws.client.post(f"/ui/leads/{ws.lead_id}/stage-call")
+    assert "Approve &amp; copy number" in response.text
+
+
+def test_queue_filter_matches_company_and_name(ws):
+    s = SessionLocal()
+    lead = Lead(display_name="Filter Person", primary_phone="+15550003333",
+                company="Redwood Enterprises")
+    s.add(lead)
+    s.commit()
+    filter_lead_id = lead.lead_id
+    s.close()
+
+    response = ws.client.get("/ui/queue", params={"q": "redwood", "list_only": "1"})
+    assert "Redwood Enterprises" in response.text
+    assert "Queue Lead" not in response.text  # filtered out
+
+    s = SessionLocal()
+    s.query(Lead).filter_by(lead_id=filter_lead_id).delete()
+    s.commit()
+    s.close()

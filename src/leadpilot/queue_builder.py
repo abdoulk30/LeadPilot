@@ -100,9 +100,14 @@ def _lead_is_flagged(lead: Lead) -> bool:
     )
 
 
-def build_queue(session: Session, rep_id: uuid.UUID) -> list[dict]:
+def build_queue(session: Session, rep_id: uuid.UUID, q: str | None = None) -> list[dict]:
     """One summary dict per lead, sorted: urgent-handoff leads first,
-    then rank, then most recent activity.
+    then rank, then most recent activity, then name/company
+    alphabetically (a whole sync commits in one transaction, so
+    same-run leads tie on created_at — without the alpha tie-break the
+    order was raw table order, which buried the last-ingested sheet's
+    leads hundreds of rows deep). `q` filters by contact or company
+    name, case-insensitive — at 700 leads the queue needs a filter.
     """
     now = datetime.now(timezone.utc)
     leads = session.execute(select(Lead)).scalars().all()
@@ -142,7 +147,21 @@ def build_queue(session: Session, rep_id: uuid.UUID) -> list[dict]:
             }
         )
 
-    items.sort(key=lambda i: (not i["urgent"], i["rank"], -(i["latest"].timestamp() if i["latest"] else 0)))
+    if q:
+        needle = q.strip().lower()
+        items = [
+            i for i in items
+            if needle in (i["name"] or "").lower() or needle in (i["company"] or "").lower()
+        ]
+
+    items.sort(
+        key=lambda i: (
+            not i["urgent"],
+            i["rank"],
+            -(i["latest"].timestamp() if i["latest"] else 0),
+            ((i["company"] or i["name"]) or "").lower(),
+        )
+    )
     return items
 
 

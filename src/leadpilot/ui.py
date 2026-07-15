@@ -198,13 +198,14 @@ def workspace(request: Request, rep: Rep = Depends(require_rep_ui)):
     return templates.TemplateResponse(request, "workspace.html", {"rep": rep})
 
 
-def _queue_context(db: Session, rep: Rep, **extra) -> dict:
+def _queue_context(db: Session, rep: Rep, q: str | None = None, **extra) -> dict:
     return {
-        "queue": queue_builder.build_queue(db, rep.rep_id),
+        "queue": queue_builder.build_queue(db, rep.rep_id, q=q),
         "unlogged": queue_builder.unlogged_calls(db, rep.rep_id),
         "selected_lead_id": None,
         "sync_message": None,
         "sync_error": False,
+        "q": q,
         **extra,
     }
 
@@ -212,10 +213,13 @@ def _queue_context(db: Session, rep: Rep, **extra) -> dict:
 @router.get("/ui/queue", response_class=HTMLResponse)
 def queue_partial(
     request: Request,
+    q: str | None = Query(default=None),
+    list_only: bool = Query(default=False),
     rep: Rep = Depends(require_rep_ui),
     db: Session = Depends(get_db_ui),
 ):
-    return templates.TemplateResponse(request, "partials/queue.html", _queue_context(db, rep))
+    template = "partials/queue_list.html" if list_only else "partials/queue.html"
+    return templates.TemplateResponse(request, template, _queue_context(db, rep, q=q))
 
 
 @router.post("/ui/sync", response_class=HTMLResponse)
@@ -594,6 +598,76 @@ def call_outcome(
     event = _get_event(db, event_id)
     result = {"error_message": error} if error else {"ok_message": "Outcome logged."}
     return _card_response(request, db, rep, event, result=result)
+
+
+# ---- Rep-initiated action drafts (Marc, 2026-07-15) ----------------------
+# The agent isn't the only one who drafts: reps can stage a call/text/
+# email directly from the lead view. Same path through the gate — the
+# tools stage AWAITING_REP_APPROVAL, the card appears, approval fires
+# it. No shortcut around the state machine, just a human author.
+
+
+@router.post("/ui/leads/{lead_id}/stage-call", response_class=HTMLResponse)
+def stage_call(
+    request: Request,
+    lead_id: uuid.UUID,
+    rep: Rep = Depends(require_rep_ui),
+    db: Session = Depends(get_db_ui),
+):
+    lead = _lead_or_404(db, lead_id)
+    stage_error = None
+    try:
+        initiate_lead_call.initiate_lead_call(db, lead_id=lead_id)
+        db.commit()
+    except ValueError as e:
+        db.rollback()
+        stage_error = str(e)
+    return templates.TemplateResponse(
+        request, "partials/lead_center.html", _center_context(db, rep, lead, stage_error=stage_error)
+    )
+
+
+@router.post("/ui/leads/{lead_id}/stage-text", response_class=HTMLResponse)
+def stage_text(
+    request: Request,
+    lead_id: uuid.UUID,
+    message: str = Form(...),
+    rep: Rep = Depends(require_rep_ui),
+    db: Session = Depends(get_db_ui),
+):
+    lead = _lead_or_404(db, lead_id)
+    stage_error = None
+    try:
+        send_lead_text.send_lead_text(db, lead_id=lead_id, message=message)
+        db.commit()
+    except ValueError as e:
+        db.rollback()
+        stage_error = str(e)
+    return templates.TemplateResponse(
+        request, "partials/lead_center.html", _center_context(db, rep, lead, stage_error=stage_error)
+    )
+
+
+@router.post("/ui/leads/{lead_id}/stage-email", response_class=HTMLResponse)
+def stage_email(
+    request: Request,
+    lead_id: uuid.UUID,
+    subject: str = Form(...),
+    body: str = Form(...),
+    rep: Rep = Depends(require_rep_ui),
+    db: Session = Depends(get_db_ui),
+):
+    lead = _lead_or_404(db, lead_id)
+    stage_error = None
+    try:
+        send_lead_email.send_lead_email(db, lead_id=lead_id, subject=subject, body=body)
+        db.commit()
+    except ValueError as e:
+        db.rollback()
+        stage_error = str(e)
+    return templates.TemplateResponse(
+        request, "partials/lead_center.html", _center_context(db, rep, lead, stage_error=stage_error)
+    )
 
 
 # ---- Sheet edits: staging + tabs (§6e / §4) ------------------------------

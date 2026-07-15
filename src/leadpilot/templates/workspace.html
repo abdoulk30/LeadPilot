@@ -19,7 +19,10 @@
 
     <button hx-get="/ui/search" hx-target="#drawer-slot" hx-swap="innerHTML">Search</button>
     <button hx-get="/ui/connect" hx-target="#drawer-slot" hx-swap="innerHTML">Connect Google</button>
-    <button class="btn-approve" hx-post="/ui/sync" hx-target="#queue-pane" hx-swap="innerHTML">Sync sheets</button>
+    {# Plain by default; highlights on hover; stays highlighted while
+       the sync request is in flight (htmx-request), then reverts —
+       Marc 2026-07-15, overriding the earlier always-tinted style. #}
+    <button hx-post="/ui/sync" hx-target="#queue-pane" hx-swap="innerHTML">Sync sheets</button>
     <button data-toggle-settings title="Appearance">⚙</button>
     <form method="post" action="/logout/form" style="display:inline">
       <button type="submit" title="Sign out — {{ rep.email }}">Sign out</button>

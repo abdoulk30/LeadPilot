@@ -370,11 +370,18 @@ label.field-label {
   background: transparent;
   border: none;
 }
-.tab:hover { color: var(--accent-light); background: rgba(var(--ar), 0.08); }
+/* Inactive tabs must visibly react on hover while the active one
+   holds its state (Marc, 2026-07-15). */
+.tab:hover {
+  color: var(--accent-light);
+  background: rgba(var(--ar), 0.14);
+  filter: brightness(1.15);
+}
 .tab.active {
   color: var(--text-bright);
   background: rgba(var(--ar), 0.2);
 }
+.tab.active:hover { filter: none; }
 
 .topbar .spacer { flex: 1; }
 
@@ -794,3 +801,15 @@ label.field-label {
 /* htmx request indicator */
 .htmx-indicator { opacity: 0; transition: opacity 150ms ease; }
 .htmx-request .htmx-indicator, .htmx-request.htmx-indicator { opacity: 1; }
+
+/* A button whose request is in flight stays highlighted until the
+   response lands (htmx adds/removes .htmx-request on the issuing
+   element) — "click → stays highlighted until the sync is done, then
+   back to the original state" (Marc, 2026-07-15). Applies to every
+   hx-* button, not just Sync. */
+button.htmx-request, .btn.htmx-request {
+  background: rgba(var(--ar), 0.32);
+  border-color: rgba(var(--ar), 0.7);
+  color: var(--accent-light);
+  filter: brightness(1.2);
+}

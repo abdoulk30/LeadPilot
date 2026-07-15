@@ -29,6 +29,55 @@
   <div class="notice-error">{{ stage_error }}</div>
   {% endif %}
 
+  {# Rep-initiated drafting (Marc, 2026-07-15): stage a call/text/email
+     yourself — it lands as a normal card below, approval still gates
+     the real send. Call stages in one click (nothing to compose);
+     text/email open a compose form. #}
+  <div class="btn-row" style="margin: 0 0 16px;">
+    <button hx-post="/ui/leads/{{ lead.lead_id }}/stage-call"
+            hx-target="#center-pane" hx-swap="innerHTML"
+            {% if not lead.primary_phone %}disabled title="No phone number on file"{% endif %}>
+      📞 Draft call
+    </button>
+    <button hx-on:click="document.getElementById('compose-text').toggleAttribute('hidden');
+                          document.getElementById('compose-email').setAttribute('hidden', '')"
+            {% if not lead.primary_phone %}disabled title="No phone number on file"{% endif %}>
+      💬 Draft text
+    </button>
+    <button hx-on:click="document.getElementById('compose-email').toggleAttribute('hidden');
+                          document.getElementById('compose-text').setAttribute('hidden', '')"
+            {% if not lead.primary_email %}disabled title="No email on file"{% endif %}>
+      ✉️ Draft email
+    </button>
+  </div>
+
+  <div class="card action-card" id="compose-text" hidden>
+    <span class="micro">New text to {{ lead.primary_phone }}</span>
+    <form hx-post="/ui/leads/{{ lead.lead_id }}/stage-text"
+          hx-target="#center-pane" hx-swap="innerHTML" style="margin-top: 8px;">
+      <textarea name="message" rows="3" required placeholder="Message…"></textarea>
+      <div class="btn-row">
+        <button type="submit">Stage draft for approval</button>
+        <button type="button" hx-on:click="document.getElementById('compose-text').setAttribute('hidden', '')">Cancel</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card action-card" id="compose-email" hidden>
+    <span class="micro">New email to {{ lead.primary_email }}</span>
+    <form hx-post="/ui/leads/{{ lead.lead_id }}/stage-email"
+          hx-target="#center-pane" hx-swap="innerHTML" style="margin-top: 8px;">
+      <label class="field-label">Subject</label>
+      <input type="text" name="subject" required>
+      <label class="field-label">Body</label>
+      <textarea name="body" rows="5" required></textarea>
+      <div class="btn-row">
+        <button type="submit">Stage draft for approval</button>
+        <button type="button" hx-on:click="document.getElementById('compose-email').setAttribute('hidden', '')">Cancel</button>
+      </div>
+    </form>
+  </div>
+
   <span class="micro" style="display:block; margin-bottom: 8px;">
     Drafted actions ({{ cards | length }})
   </span>

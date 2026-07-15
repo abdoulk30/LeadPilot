@@ -15,6 +15,7 @@
   <span class="name">
     <span class="rank-pill rank-{{ item.rank }}">R{{ item.rank }}</span>
     {{ item.company or item.name }}
+    {% if item.status %}<span class="handoff-badge" title="Pipeline status from the sheet">{{ item.status }}</span>{% endif %}
     {% if item.urgent %}<span class="handoff-badge urgent">urgent</span>{% endif %}
     {% if item.flagged %}<span class="flag-badge" title="A source field was flagged by the injection guard">flagged</span>{% endif %}
   </span>

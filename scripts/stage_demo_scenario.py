@@ -19,7 +19,9 @@ What it does, in order:
     tools (texts, an email, an urgent Slack handoff, a sheet-edit
     diff) — everything awaiting approval, nothing executed.
 
-    python scripts/stage_demo_scenario.py
+    python scripts/stage_demo_scenario.py            # everything
+    python scripts/stage_demo_scenario.py --story    # re-stage history/
+        # drafts only (e.g. after a Reset wiped them) — sheets untouched
 """
 
 import sys
@@ -100,6 +102,7 @@ def write_cell(api, spreadsheet_id, a1, value):
 
 
 def main():
+    story_only = "--story" in sys.argv
     session = SessionLocal()
     rep = session.execute(select(Rep).where(Rep.email == "demo@leadpilot.dev")).scalar_one()
     granted = google_credentials.granted_file_ids(session, rep.rep_id)
@@ -110,6 +113,18 @@ def main():
 
     connector = GoogleSheetsConnector(session, rep.rep_id)
     api = sheets_api(connector)
+
+    if story_only:
+        # Clear any leftover history/drafts, keep leads as they are.
+        for model in (ContactHistory, LeadActionLock, SheetCellLock, AgentRunReport):
+            session.query(model).delete()
+        session.commit()
+        leads = session.execute(select(Lead)).scalars().all()
+        if not leads:
+            print("No leads in the DB — run without --story first (or Sync sheets).")
+            return 1
+        print(f"story-only: {len(leads)} existing leads")
+        return stage_story(session, rep, connector, leads)
 
     # ---- Phase 1: sheet surgery -----------------------------------------
     mirror_contact = None  # (phone, email) of a sheet-1 keeper
@@ -174,6 +189,10 @@ def main():
     leads = session.execute(select(Lead)).scalars().all()
     print(f"re-synced: {len(rows)} rows -> {len(leads)} canonical leads")
 
+    return stage_story(session, rep, connector, leads)
+
+
+def stage_story(session, rep, connector, leads):
     # ---- Phase 3: history + staged drafts ---------------------------------
     other = session.execute(select(Rep).where(Rep.email == "abdoul-demo@leadpilot.dev")).scalar_one_or_none()
     if other is None:

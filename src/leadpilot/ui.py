@@ -280,6 +280,17 @@ def _center_context(db: Session, rep: Rep, lead: Lead, **extra) -> dict:
     )
     rank, reason = queue_builder._rank(events, datetime.now(timezone.utc))
     names = _rep_names(db)
+
+    # Pipeline status from the sheet's Status column (first source row
+    # with a mapped value) — shown as a chip in the lead header.
+    from leadpilot.connectors.google_sheets import _map_row_fields
+
+    lead_status = None
+    for src in queue_builder.lead_sources(db, lead.lead_id):
+        mapped = _map_row_fields(src.raw_data or {})
+        if mapped.get("status"):
+            lead_status = mapped["status"]
+            break
     cards = [
         queue_builder.describe_event(e, names, rep.rep_id)
         for e in queue_builder.pending_actions(db, lead.lead_id)
@@ -295,6 +306,7 @@ def _center_context(db: Session, rep: Rep, lead: Lead, **extra) -> dict:
         "result": None,
         "stage_error": None,
         "status_options": LEAD_STATUS_OPTIONS,
+        "lead_status": lead_status,
         # rail context, rendered via the same response's OOB swap
         "events": queue_builder.timeline(db, lead.lead_id, rep.rep_id),
         "docs": None,

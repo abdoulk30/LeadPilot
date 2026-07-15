@@ -109,12 +109,25 @@ def build_queue(session: Session, rep_id: uuid.UUID, q: str | None = None) -> li
     leads hundreds of rows deep). `q` filters by contact or company
     name, case-insensitive — at 700 leads the queue needs a filter.
     """
+    from leadpilot.connectors.google_sheets import _map_row_fields
+
     now = datetime.now(timezone.utc)
     leads = session.execute(select(Lead)).scalars().all()
     all_events = session.execute(select(ContactHistory)).scalars().all()
     by_lead: dict[uuid.UUID, list[ContactHistory]] = {}
     for event in all_events:
         by_lead.setdefault(event.lead_id, []).append(event)
+
+    # Pipeline status comes from the SHEET (the Status column), not a
+    # Lead column — surface it on the queue (Marc, 2026-07-15: status
+    # was invisible outside the Source data panel). First non-empty
+    # mapped status across a lead's source rows wins.
+    status_by_lead: dict[uuid.UUID, str] = {}
+    for src_row in session.execute(select(LeadSourceRow)).scalars():
+        if src_row.lead_id not in status_by_lead:
+            mapped = _map_row_fields(src_row.raw_data or {})
+            if mapped.get("status"):
+                status_by_lead[src_row.lead_id] = mapped["status"]
 
     items = []
     for lead in leads:
@@ -137,6 +150,7 @@ def build_queue(session: Session, rep_id: uuid.UUID, q: str | None = None) -> li
                 "lead_id": str(lead.lead_id),
                 "name": lead.display_name or "(no name)",
                 "company": lead.company,
+                "status": status_by_lead.get(lead.lead_id),
                 "rank": rank,
                 "rank_reason": reason,
                 "line": line,

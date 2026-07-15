@@ -50,7 +50,7 @@ from leadpilot.models.contact_history import (
     Stage,
     Tool,
 )
-from leadpilot.models.leads import Lead
+from leadpilot.models.leads import LEAD_STATUS_OPTIONS, Lead
 from leadpilot.models.rep import Rep
 from leadpilot.tools import (
     dispatch_slack_handoff,
@@ -290,6 +290,7 @@ def _center_context(db: Session, rep: Rep, lead: Lead, **extra) -> dict:
         "edit": False,
         "result": None,
         "stage_error": None,
+        "status_options": LEAD_STATUS_OPTIONS,
         # rail context, rendered via the same response's OOB swap
         "events": queue_builder.timeline(db, lead.lead_id, rep.rep_id),
         "docs": None,

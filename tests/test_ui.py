@@ -570,3 +570,23 @@ def _cleanup_adhoc(source_id):
         s.query(Lead).filter_by(lead_id=lid).delete()
     s.commit()
     s.close()
+
+
+def test_lead_center_suggests_status_vocabulary(ws):
+    from leadpilot.models.leads import LEAD_STATUS_OPTIONS
+
+    # sources are required for the edit form to render
+    s = SessionLocal()
+    s.add(LeadSourceRow(source_id="ui-test-status-vocab", row_ref="2",
+                        lead_id=ws.lead_id, raw_data={"Status": ""}))
+    s.commit()
+    s.close()
+
+    response = ws.client.get(f"/ui/leads/{ws.lead_id}")
+    for option in LEAD_STATUS_OPTIONS:
+        assert option in response.text
+
+    s = SessionLocal()
+    s.query(LeadSourceRow).filter_by(source_id="ui-test-status-vocab").delete()
+    s.commit()
+    s.close()

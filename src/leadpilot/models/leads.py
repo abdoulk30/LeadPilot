@@ -20,6 +20,15 @@ from sqlalchemy.orm import Mapped, mapped_column
 from leadpilot.db import Base
 
 
+# v1 status vocabulary (Marc, 2026-07-15) — provisional; a fuller list
+# is pending discussion. Blank is also valid. Deliberately NOT an
+# enum/constraint: sheets are rep-owned and may carry other values, so
+# the interface suggests these rather than rejecting anything. Rank
+# semantics per status are part of the later discussion. Documented in
+# leadpilot-docs/architecture/state-schema.md ("Lead status vocabulary").
+LEAD_STATUS_OPTIONS = ("Funded", "Approved", "Deal In", "App In", "Interested", "Dead")
+
+
 class Lead(Base):
     __tablename__ = "leads"
 

@@ -87,7 +87,16 @@
         <option value="company">company</option>
       </select>
       <label class="field-label">New value</label>
-      <input type="text" name="value" required>
+      {# datalist = suggestions, not enforcement — the v1 status
+         vocabulary (state-schema.md) is provisional and sheets may
+         carry other values; blank stays valid. #}
+      <input type="text" name="value" list="status-options" required>
+      <datalist id="status-options">
+        {% for option in status_options %}<option value="{{ option }}">{% endfor %}
+      </datalist>
+      <div class="faint" style="font-size: 11px; margin-top: 4px;">
+        Status options: {{ status_options | join(" · ") }}
+      </div>
       <div class="btn-row">
         <button type="submit">Stage diff for approval</button>
       </div>

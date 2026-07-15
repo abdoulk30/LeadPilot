@@ -7,7 +7,12 @@
     <h2 style="font-size: 16px;">{{ lead.display_name or "(no name)" }}</h2>
     {% if lead.company %}<span class="dim">{{ lead.company }}</span>{% endif %}
     <span class="rank-pill rank-{{ rank }}">R{{ rank }}</span>
-    {% if lead_status %}<span class="handoff-badge" title="Pipeline status from the sheet">{{ lead_status }}</span>{% endif %}
+    {% if lead_status %}
+      {% set sc = status_colors.get(lead_status | lower) %}
+      <span class="handoff-badge" title="Pipeline status from the sheet"
+            {% if sc %}style="color: {{ sc }}; border-color: {{ sc }}66; background: {{ sc }}1f;"{% endif %}>
+        {{ lead_status }}</span>
+    {% endif %}
   </div>
   <div class="dim" style="font-size: 12px; margin: 0 0 4px 44px;">
     {% if lead.primary_phone %}{{ lead.primary_phone }}{% endif %}

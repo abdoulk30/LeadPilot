@@ -448,7 +448,24 @@ label.field-label {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: nowrap;
 }
+
+/* Long company names truncate instead of wrapping around the status/
+   urgent chips in the narrow queue pane — but never below ~45% of the
+   row, so a chip-heavy lead can't crush the title to one letter
+   (chips clip at the row edge instead). */
+.queue-item { overflow: hidden; }
+.queue-item .name .title-text {
+  flex: 1 1 auto;
+  min-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queue-item .name .rank-pill,
+.queue-item .name .handoff-badge,
+.queue-item .name .flag-badge { flex-shrink: 0; }
 
 .queue-item .line {
   font-size: 12px;

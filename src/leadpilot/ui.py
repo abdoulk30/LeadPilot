@@ -71,6 +71,14 @@ logger = logging.getLogger("leadpilot.auth_guard")
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
+# Cache-buster for static assets — the browser was serving stale CSS
+# across restyles, making changes look like they didn't land (Marc,
+# 2026-07-15). New process → new version → fresh assets, no manual
+# hard-reload needed.
+import time as _time
+
+templates.env.globals["asset_version"] = str(int(_time.time()))
+
 SESSION_COOKIE_NAME = "leadpilot_session"
 
 
@@ -206,6 +214,7 @@ def _queue_context(db: Session, rep: Rep, q: str | None = None, **extra) -> dict
         "sync_message": None,
         "sync_error": False,
         "q": q,
+        "status_colors": get_status_colors(db, rep.rep_id),
         **extra,
     }
 
@@ -307,6 +316,7 @@ def _center_context(db: Session, rep: Rep, lead: Lead, **extra) -> dict:
         "stage_error": None,
         "status_options": LEAD_STATUS_OPTIONS,
         "lead_status": lead_status,
+        "status_colors": get_status_colors(db, rep.rep_id),
         # rail context, rendered via the same response's OOB swap
         "events": queue_builder.timeline(db, lead.lead_id, rep.rep_id),
         "docs": None,
@@ -811,6 +821,53 @@ def _real_sheets_connector(db: Session, rep_id: uuid.UUID):
 # change and the rail re-renders on every lead click; without this,
 # each click would cost one Drive metadata call per granted item.
 _file_info_cache: dict[str, dict] = {}
+
+# Curated palette for the v1 status vocabulary (state-schema.md) —
+# used when the sheets' own color legends are absent or
+# non-distinguishing (Marc's demo sheets color nearly everything the
+# same red). Keys lowercase.
+FALLBACK_STATUS_COLORS = {
+    "funded": "#5fd6a2",      # green — money in
+    "approved": "#45c4b0",    # teal
+    "deal in": "#6c9fff",     # blue
+    "app in": "#b3a0ef",      # purple
+    "interested": "#f0c96b",  # gold
+    "dead": "#ff7b7b",        # red — matches the sheets' own dead-deal red
+}
+
+_status_color_cache: dict[str, dict[str, str]] = {}
+
+
+def get_status_colors(db: Session, rep_id: uuid.UUID) -> dict[str, str]:
+    """Status (lowercase) -> hex color. Reads the sheets' color
+    legends (Issue 011's first real slice) and uses them when they
+    actually distinguish statuses (3+ distinct colors among the known
+    vocabulary); otherwise the curated fallback palette. Cached per
+    process — legends don't move mid-session.
+    """
+    key = str(rep_id)
+    if key in _status_color_cache:
+        return _status_color_cache[key]
+
+    colors = dict(FALLBACK_STATUS_COLORS)
+    try:
+        connector = sheets_connector_factory(db, rep_id) or _real_sheets_connector(db, rep_id)
+        legend: dict[str, str] = {}
+        if hasattr(connector, "status_legend_colors"):
+            for item in granted_items(db, rep_id):
+                if not item["is_sheet"]:
+                    continue
+                try:
+                    found = connector.status_legend_colors(item["id"])
+                except Exception:
+                    continue  # timeouts / odd sheets never block rendering
+                legend.update({k: v for k, v in found.items() if k in FALLBACK_STATUS_COLORS})
+        if len(legend) >= 3 and len(set(legend.values())) >= 3:
+            colors.update(legend)
+    except Exception:
+        pass
+    _status_color_cache[key] = colors
+    return colors
 
 _SPREADSHEET_MIME = "application/vnd.google-apps.spreadsheet"
 _FOLDER_MIME = "application/vnd.google-apps.folder"

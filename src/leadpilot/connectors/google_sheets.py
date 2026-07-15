@@ -386,6 +386,44 @@ class GoogleSheetsConnector(LeadSourceConnector):
         ).execute()
         return "Status"
 
+    def status_legend_colors(self, source_id: str) -> dict[str, str]:
+        """Reads the sheet's color legend (Issue 011, first slice):
+        cells in the top rows whose text is a status word and whose
+        background is colored — e.g. a green cell containing FUNDED.
+        Returns {status_lowercase: "#rrggbb"}. This is the one place
+        gridData (formatting) is fetched; the bounded range keeps the
+        response small. Sheets without a legend return {}.
+        """
+        sheet_id = self._sheet_id_for(source_id)
+        resp = (
+            self._client()
+            .spreadsheets()
+            .get(
+                spreadsheetId=sheet_id,
+                ranges=["A1:AA6"],
+                includeGridData=True,
+                fields="sheets(data(rowData(values(formattedValue,effectiveFormat(backgroundColor)))))",
+            )
+            .execute()
+        )
+        colors: dict[str, str] = {}
+        for sheet in resp.get("sheets", []):
+            for data in sheet.get("data", []):
+                for row in data.get("rowData", []):
+                    for cell in row.get("values", []):
+                        text = (cell.get("formattedValue") or "").strip()
+                        bg = (cell.get("effectiveFormat") or {}).get("backgroundColor") or {}
+                        if not text or len(text) > 30:
+                            continue
+                        r = bg.get("red", 0.0)
+                        g = bg.get("green", 0.0)
+                        b = bg.get("blue", 0.0)
+                        # skip default white / near-white / pure black fills
+                        if (r > 0.93 and g > 0.93 and b > 0.93) or (r + g + b < 0.05):
+                            continue
+                        colors[text.lower()] = f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
+        return colors
+
     def stage_field_write(self, source_id: str, row_ref: str, field_name: str, value: str) -> FieldDiff:
         for ref, raw in self._fetch_raw_rows(source_id):
             if ref == row_ref:

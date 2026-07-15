@@ -6,16 +6,24 @@
 {% endif %}
 
 {% for item in queue %}
+{% set sc = status_colors.get(item.status | lower) if item.status else None %}
 <button class="queue-item{% if item.lead_id == selected_lead_id %} selected{% endif %}"
         hx-get="/ui/leads/{{ item.lead_id }}"
         hx-target="#center-pane" hx-swap="innerHTML"
-        title="{{ item.rank_reason }}">
+        title="{{ item.rank_reason }}{% if item.status %} · status: {{ item.status }}{% endif %}"
+        {% if sc %}style="background: {{ sc }}14; box-shadow: inset 3px 0 0 {{ sc }};"{% endif %}>
   {# Company first, then contact name (Marc, 2026-07-15) — reps think
-     in businesses; fall back to the contact when no company. #}
+     in businesses; fall back to the contact when no company. Status
+     colors come from the sheets' own legend when distinguishable,
+     else the curated palette (ui.get_status_colors). #}
   <span class="name">
     <span class="rank-pill rank-{{ item.rank }}">R{{ item.rank }}</span>
-    {{ item.company or item.name }}
-    {% if item.status %}<span class="handoff-badge" title="Pipeline status from the sheet">{{ item.status }}</span>{% endif %}
+    <span class="title-text">{{ item.company or item.name }}</span>
+    {% if item.status %}
+      <span class="handoff-badge" title="Pipeline status from the sheet"
+            {% if sc %}style="color: {{ sc }}; border-color: {{ sc }}66; background: {{ sc }}1f;"{% endif %}>
+        {{ item.status }}</span>
+    {% endif %}
     {% if item.urgent %}<span class="handoff-badge urgent">urgent</span>{% endif %}
     {% if item.flagged %}<span class="flag-badge" title="A source field was flagged by the injection guard">flagged</span>{% endif %}
   </span>

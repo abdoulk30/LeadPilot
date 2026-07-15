@@ -38,12 +38,15 @@
         hx-get="/ui/leads/{{ item.lead_id }}"
         hx-target="#center-pane" hx-swap="innerHTML"
         title="{{ item.rank_reason }}">
+  {# Company first, then contact name (Marc, 2026-07-15) — reps think
+     in businesses; fall back to the contact when no company. #}
   <span class="name">
     <span class="rank-pill rank-{{ item.rank }}">R{{ item.rank }}</span>
-    {{ item.name }}
+    {{ item.company or item.name }}
     {% if item.urgent %}<span class="handoff-badge urgent">urgent</span>{% endif %}
     {% if item.flagged %}<span class="flag-badge" title="A source field was flagged by the injection guard">flagged</span>{% endif %}
   </span>
+  {% if item.company %}<span class="line" style="color: var(--text);">{{ item.name }}</span>{% endif %}
   <span class="line">{{ item.line }}</span>
 </button>
 {% endfor %}

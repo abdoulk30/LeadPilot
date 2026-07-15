@@ -135,6 +135,33 @@ def _map_row_fields(raw: dict[str, str]) -> dict[str, str | None]:
     return fields
 
 
+def _header_score(row: list[str]) -> int:
+    """How header-like a row is: count of cells mapping to a canonical
+    field or a first/last-name column."""
+    score = 0
+    for cell in row:
+        norm = _normalize_header(str(cell))
+        if _field_for_header(norm) or norm in _FIRST_NAME_HEADERS or norm in _LAST_NAME_HEADERS:
+            score += 1
+    return score
+
+
+def _detect_header_index(rows: list[list[str]], scan: int = 5) -> int:
+    """Real sheets don't reliably put headers on row 1 — Marc's sheets
+    (2026-07-15) carry a color-legend row that sits above OR below the
+    header row depending on the sheet. Score the first few rows for
+    header-likeness and pick the best (earliest on ties, row 0 when
+    nothing scores). Rows above the header (a legend) are excluded
+    from data; legend rows *below* the header are dropped later by
+    fetch_rows' no-contact-fields skip."""
+    best_idx, best_score = 0, 0
+    for idx, row in enumerate(rows[:scan]):
+        score = _header_score(row)
+        if score > best_score:
+            best_idx, best_score = idx, score
+    return best_idx
+
+
 def _resolve_header(header_row: list[str], field_name: str) -> str | None:
     """Find the sheet's actual header for a canonical field — exact
     canonical name first, then synonyms — so writes land in the real
@@ -265,15 +292,22 @@ class GoogleSheetsConnector(LeadSourceConnector):
             self._client()
             .spreadsheets()
             .values()
-            .get(spreadsheetId=sheet_id, range="A1:F1000")
+            # A1:Z, not A1:F — the old 6-column window silently hid any
+            # column past F, including the Status column
+            # add_status_column appends (caught live 2026-07-15: the
+            # created column landed in G and became invisible).
+            .get(spreadsheetId=sheet_id, range="A1:Z1000")
             .execute()
         )
         rows = result.get("values", [])
         if not rows:
             return [], []
-        header = rows[0]
+        header_idx = _detect_header_index(rows)
+        header = rows[header_idx]
         out = []
-        for i, row in enumerate(rows[1:], start=2):  # row 1 is the header
+        # row_refs are real 1-based sheet row numbers — writes depend
+        # on them landing on the exact row.
+        for i, row in enumerate(rows[header_idx + 1:], start=header_idx + 2):
             padded = row + [""] * (len(header) - len(row))
             row_dict = dict(zip(header, padded))
             out.append((str(i), row_dict))
@@ -286,6 +320,13 @@ class GoogleSheetsConnector(LeadSourceConnector):
         records = []
         for row_ref, raw in self._fetch_raw_rows(source_id):
             fields = _map_row_fields(raw)
+            # A row with no name, phone, or email isn't a lead — it's a
+            # legend/annotation/blank row (Marc's sheets carry a
+            # color-legend row that would otherwise ingest as a junk
+            # "(no name)" lead). Skipped, not errored: annotation rows
+            # are normal in rep-owned sheets.
+            if not (fields["name"] or fields["phone"] or fields["email"]):
+                continue
             records.append(
                 LeadRecord(
                     source_id=source_id,

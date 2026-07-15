@@ -44,3 +44,33 @@ def test_resolve_header_finds_real_column_for_writes():
     assert _resolve_header(header, "status") == "Lead Status"
     assert _resolve_header(header, "phone") == "PHONE"
     assert _resolve_header(header, "company") is None
+
+
+def test_header_detection_prefers_most_headerlike_row():
+    from leadpilot.connectors.google_sheets import _detect_header_index
+
+    # Legend on row 1, headers on row 2 (Marc's "other sheets" layout)
+    rows = [
+        ["FUNDED", "APPROVED", "DEAD"],
+        ["TIME STAMP", "FIRST NAME", "LAST NAME", "EMAIL", "PHONE"],
+        ["9/7/2025", "Logan", "Perry", "x@y.com", "555"],
+    ]
+    assert _detect_header_index(rows) == 1
+
+    # Headers on row 1 (Marc's current sheet)
+    rows2 = [
+        ["TIME STAMP", "FIRST NAME", "LAST NAME", "EMAIL", "PHONE"],
+        ["", "", "", "", "", "FUNDED"],
+        ["9/7/2025", "Logan", "Perry", "x@y.com", "555"],
+    ]
+    assert _detect_header_index(rows2) == 0
+
+
+def test_rows_without_any_contact_fields_are_skipped():
+    """The color-legend row (only a status word in a custom column)
+    must not become a '(no name)' lead."""
+    from leadpilot.connectors.google_sheets import _map_row_fields
+
+    legend = _map_row_fields({"TIME STAMP": "", "FIRST NAME": "", "LAST NAME": "",
+                              "EMAIL": "", "PHONE": "", "What will you use the funds for?": "FUNDED"})
+    assert not (legend["name"] or legend["phone"] or legend["email"])

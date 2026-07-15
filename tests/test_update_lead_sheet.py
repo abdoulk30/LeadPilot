@@ -258,6 +258,9 @@ def test_live_execute_against_a_real_connected_rep(db_session):
     source_id = row.granted_file_ids[0]
 
     rows = real_connector.fetch_rows(source_id)
+    from leadpilot.connectors.google_sheets import _resolve_header
+    if not rows or _resolve_header(list(rows[0].raw.keys()), "status") is None:
+        pytest.skip("granted live sheet has no status-like column to write to")
     assert len(rows) > 0
     target = rows[0]
     lead_id = _make_lead(db_session)

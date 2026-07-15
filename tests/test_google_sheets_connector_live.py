@@ -209,6 +209,7 @@ def test_stage_field_write_does_not_modify_the_sheet(db_session):
 
     records = connector.fetch_rows(sheet_id)
     assert records, "live test sheet must have at least one row"
+    _skip_unless_status_column(records)
     target = records[0]
 
     before = {r.row_ref: r.status for r in connector.fetch_rows(sheet_id)}
@@ -220,12 +221,26 @@ def test_stage_field_write_does_not_modify_the_sheet(db_session):
     assert after == before, "stage_field_write must never write — sheet changed anyway"
 
 
+def _skip_unless_status_column(records):
+    """The write tests probe the 'status' field. A real business sheet
+    (vs. the dedicated test sheet) may have no status-like column at
+    all — the connector correctly refuses to write one, so skip rather
+    than fail on sheet shape (surfaced by Marc's first real intake
+    sheet, 2026-07-15)."""
+    from leadpilot.connectors.google_sheets import _resolve_header
+
+    header = list(records[0].raw.keys()) if records else []
+    if _resolve_header(header, "status") is None:
+        pytest.skip(f"granted live sheet has no status-like column to write to (headers: {header})")
+
+
 def test_commit_field_write_actually_writes_and_is_reversible(db_session):
     rep_id, sheet_id = _skip_unless_live_rep_available(db_session)
     connector = GoogleSheetsConnector(db_session, rep_id)
 
     records = connector.fetch_rows(sheet_id)
     assert records, "live test sheet must have at least one row"
+    _skip_unless_status_column(records)
     target = records[0]
     original = target.status
 
@@ -254,6 +269,7 @@ def test_commit_field_write_raises_stale_write_error_on_mismatch(db_session):
 
     records = connector.fetch_rows(sheet_id)
     assert records, "live test sheet must have at least one row"
+    _skip_unless_status_column(records)
     target = records[0]
 
     from leadpilot.connectors.base import StaleWriteError

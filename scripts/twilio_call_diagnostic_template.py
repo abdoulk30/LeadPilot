@@ -22,8 +22,8 @@ account_sid = 'YOUR_ACCOUNT_SID'
 auth_token = 'YOUR_AUTH_TOKEN'
 
 # Phone numbers
-from_number = '+15165308341'  # Your Twilio number
-to_number = '+0987654321'     # The destination number
+from_number = '+18662805386'  # Your Twilio number
+to_number = '+16467839391'     # The destination number
 
 # The URL Twilio will request when the call is answered
 twiml_url = 'http://demo.twilio.com/docs/voice.xml'

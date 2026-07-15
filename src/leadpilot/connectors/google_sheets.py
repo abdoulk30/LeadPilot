@@ -164,13 +164,15 @@ def _detect_header_index(rows: list[list[str]], scan: int = 5) -> int:
 
 def _resolve_header(header_row: list[str], field_name: str) -> str | None:
     """Find the sheet's actual header for a canonical field — exact
-    canonical name first, then synonyms — so writes land in the real
-    column whatever its casing."""
+    canonical name first, then synonyms including numbered variants
+    (Phone1, Email #2), so lookups and writes land in the real column
+    whatever its casing/numbering. Matches the read path's tolerance
+    (_field_for_header) exactly."""
     canonical = next((h for h, f in _HEADER_TO_FIELD.items() if f == field_name), None)
     if canonical in header_row:
         return canonical
     for header in header_row:
-        if _HEADER_SYNONYMS.get(_normalize_header(header)) == field_name:
+        if _field_for_header(_normalize_header(header)) == field_name:
             return header
     return None
 
@@ -292,11 +294,11 @@ class GoogleSheetsConnector(LeadSourceConnector):
             self._client()
             .spreadsheets()
             .values()
-            # A1:Z, not A1:F — the old 6-column window silently hid any
-            # column past F, including the Status column
-            # add_status_column appends (caught live 2026-07-15: the
-            # created column landed in G and became invisible).
-            .get(spreadsheetId=sheet_id, range="A1:Z1000")
+            # A1:ZZ — fixed narrow windows keep biting (A1:F hid column G;
+            # A1:Z hid the Status column landing in AA on Marc's real
+            # 26-column sheet). 52 columns covers any plausible intake
+            # sheet; widen again before assuming a bug elsewhere.
+            .get(spreadsheetId=sheet_id, range="A1:ZZ2000")
             .execute()
         )
         rows = result.get("values", [])
@@ -358,15 +360,27 @@ class GoogleSheetsConnector(LeadSourceConnector):
         approval — same rep-initiated precedent as log_call_outcome.
         Idempotent: returns the existing header if one already maps.
         """
-        header, _ = self._fetch_header_and_rows(source_id)
+        sheet_id = self._sheet_id_for(source_id)
+        result = (
+            self._client()
+            .spreadsheets()
+            .values()
+            .get(spreadsheetId=sheet_id, range="A1:ZZ2000")
+            .execute()
+        )
+        rows = result.get("values", [])
+        header_idx = _detect_header_index(rows) if rows else 0
+        header = rows[header_idx] if rows else []
         existing = _resolve_header(header, "status")
         if existing:
             return existing
         col_letter = _column_letter(len(header))
-        sheet_id = self._sheet_id_for(source_id)
+        # Write into the detected header ROW, not row 1 — sheets with a
+        # legend row above the headers would otherwise get the new
+        # header dropped into the legend.
         self._client().spreadsheets().values().update(
             spreadsheetId=sheet_id,
-            range=f"{col_letter}1",
+            range=f"{col_letter}{header_idx + 1}",
             valueInputOption="RAW",
             body={"values": [["Status"]]},
         ).execute()

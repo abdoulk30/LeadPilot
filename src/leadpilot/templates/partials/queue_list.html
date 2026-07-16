@@ -17,7 +17,7 @@
      colors come from the sheets' own legend when distinguishable,
      else the curated palette (ui.get_status_colors). #}
   <span class="name">
-    <span class="rank-pill rank-{{ item.rank }}">R{{ item.rank }}</span>
+    <span class="rank-pill rank-{{ item.rank }}" title="{{ item.rank_reason }}">R{{ item.rank }}</span>
     <span class="title-text">{{ item.company or item.name }}</span>
     {% if item.status %}
       <span class="handoff-badge" title="Pipeline status from the sheet"

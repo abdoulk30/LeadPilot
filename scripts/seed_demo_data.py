@@ -44,6 +44,7 @@ from leadpilot.models.contact_history import (  # noqa: E402
 from leadpilot.models.dedup import LeadSourceRow  # noqa: E402
 from leadpilot.models.leads import Lead  # noqa: E402
 from leadpilot.models.rep import Rep, RepSession  # noqa: E402
+from leadpilot.models.rep_google_credential import RepGoogleCredential  # noqa: E402
 from leadpilot.models.run_lock import AgentRunLock, LeadActionLock  # noqa: E402
 from leadpilot.tools import dispatch_slack_handoff, send_lead_email, send_lead_text, update_lead_sheet  # noqa: E402
 
@@ -92,6 +93,11 @@ def wipe(session):
         # its normal released state, not a leak) — FK'd to reps, so it
         # has to go before the rep does.
         session.query(AgentRunLock).filter_by(rep_id=rep.rep_id).delete()
+        # Also FK'd to reps — a demo rep who went through a real
+        # "Connect Google Account" flow (e.g. for a live-Sheets
+        # walkthrough) leaves this row behind, and it blocks deleting
+        # the rep otherwise.
+        session.query(RepGoogleCredential).filter_by(rep_id=rep.rep_id).delete()
         session.delete(rep)
     session.commit()
     print(f"Wiped {len(leads)} demo leads and {len(reps)} demo reps.")

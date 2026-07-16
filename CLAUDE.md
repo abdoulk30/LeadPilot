@@ -26,6 +26,9 @@ nontrivial change:
 - `leadpilot-docs/architecture/state-schema.md` → the source of truth
   for table/column semantics
 - `leadpilot-docs/testing/known-issues-log.md` and `testing/eval-suite.md`
+- `leadpilot-docs/OUTSTANDING-ITEMS.md` → cross-repo backlog of open
+  decisions/issues/deferred items, grouped by priority; refresh rather
+  than trust once stale
 
 ## Current build state
 

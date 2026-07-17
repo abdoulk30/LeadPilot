@@ -40,7 +40,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from leadpilot import auth, gate, google_credentials, queue_builder
+from leadpilot import auth, gate, google_credentials, injection_alerts, queue_builder
 from leadpilot.config import settings
 from leadpilot.connectors.base import ConcurrentWriteError, StaleWriteError
 from leadpilot.connectors.google_sheets import RepNotConnectedError
@@ -202,9 +202,47 @@ def logout_form(
 # ---- Workspace shell + queue (§4) --------------------------------------
 
 
+def _format_alert_timestamp(value) -> str:
+    if value is None:
+        return "None since you logged in"
+    return value.strftime("%b %d, %Y %I:%M %p UTC")
+
+
+def _injection_alert_context(db: Session, rep: Rep, leadpilot_session: str | None) -> dict:
+    login_at = auth.get_login_time_for_signed_token(db, leadpilot_session) if leadpilot_session else None
+    view = injection_alerts.get_settings_view(db, rep.rep_id, since=login_at)
+    return {
+        "enabled": view.enabled,
+        "last_incident_display": _format_alert_timestamp(view.last_incident_at),
+        "last_email_display": _format_alert_timestamp(view.last_email_sent_at),
+    }
+
+
 @router.get("/", response_class=HTMLResponse)
-def workspace(request: Request, rep: Rep = Depends(require_rep_ui)):
-    return templates.TemplateResponse(request, "workspace.html", {"rep": rep})
+def workspace(
+    request: Request,
+    rep: Rep = Depends(require_rep_ui),
+    db: Session = Depends(get_db_ui),
+    leadpilot_session: str | None = Cookie(default=None),
+):
+    return templates.TemplateResponse(
+        request, "workspace.html", {"rep": rep, **_injection_alert_context(db, rep, leadpilot_session)}
+    )
+
+
+@router.post("/ui/settings/injection-alerts", response_class=HTMLResponse)
+def toggle_injection_alerts(
+    request: Request,
+    enabled: str = Form(default=""),
+    rep: Rep = Depends(require_rep_ui),
+    db: Session = Depends(get_db_ui),
+    leadpilot_session: str | None = Cookie(default=None),
+):
+    injection_alerts.set_enabled(db, rep.rep_id, enabled == "on")
+    db.commit()
+    return templates.TemplateResponse(
+        request, "partials/injection_alert_settings.html", _injection_alert_context(db, rep, leadpilot_session)
+    )
 
 
 def _queue_context(db: Session, rep: Rep, q: str | None = None, **extra) -> dict:

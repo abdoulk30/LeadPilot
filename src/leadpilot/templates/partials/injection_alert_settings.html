@@ -1,0 +1,19 @@
+{# Injection-guard email alerts — settings toggle + indicators (chat
+   request, 2026-07-17). The two "last ..." timestamps are a
+   display-only view scoped to the current login (leadpilot.
+   injection_alerts.get_settings_view's `since` filter) — the real
+   rate-limiter state keeps running off absolute timestamps regardless
+   of login, so logging out and back in can't be used to dodge the
+   1-hour suppression cooldown early. #}
+<div id="injection-alert-settings">
+  <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; cursor:pointer;">
+    <input type="checkbox" name="enabled" {% if enabled %}checked{% endif %}
+           hx-post="/ui/settings/injection-alerts" hx-target="#injection-alert-settings" hx-swap="outerHTML"
+           hx-trigger="change">
+    Email me about flagged data incidents
+  </label>
+  <div class="faint" style="font-size: 11px; margin-top: 4px; line-height: 1.5;">
+    Last incident: {{ last_incident_display }}<br>
+    Last alert email sent: {{ last_email_display }}
+  </div>
+</div>

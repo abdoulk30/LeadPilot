@@ -114,6 +114,26 @@ def get_rep_for_signed_token(session: Session, signed_token: str) -> Rep | None:
     return rep
 
 
+def get_login_time_for_signed_token(session: Session, signed_token: str) -> datetime | None:
+    """The exact RepSession row's created_at for this specific cookie —
+    used by the injection-alert settings panel to decide what counts as
+    "since you logged in fresh": a display-only cutoff, deliberately not
+    a real reset of the underlying rate-limiter state (see
+    leadpilot.injection_alerts) — resetting the real state on login
+    would let a rep dodge the 1-hour suppression cooldown just by
+    logging out and back in. Returns None on any invalid/expired token,
+    same "never raise" contract as get_rep_for_signed_token.
+    """
+    try:
+        session_id = _serializer().loads(signed_token)
+    except BadSignature:
+        return None
+    rep_session = session.execute(
+        select(RepSession).where(RepSession.session_id == session_id)
+    ).scalar_one_or_none()
+    return rep_session.created_at if rep_session is not None else None
+
+
 def revoke_session(session: Session, signed_token: str) -> bool:
     try:
         session_id = _serializer().loads(signed_token, max_age=None)

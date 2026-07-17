@@ -147,6 +147,34 @@ knowing before touching this code:
 only as a documented-superseded trail per Decision 026's entry in
 `decisions/README.md`.
 
+**Injection-guard email alerting (2026-07-17, Decision 039).**
+`injection_guard.sanitize_record_in_place` now returns `{field: reason}`
+instead of a bare bool. `injection_alerts.py` consumes that: every
+flagged sheet row becomes one durable `injection_incidents` row (all
+flagged fields on a row bundled into one incident, not split per
+field), logged unconditionally regardless of settings or rate-limiter
+state. Unless the rep has turned it off (`reps.injection_alerts_enabled`)
+and the burst breaker isn't open, an email goes to the rep's own
+connected Gmail account immediately — this deliberately **bypasses
+gate.py's approval machinery entirely**, since it's a system notice to
+the rep about their own pipeline, not the agent acting on a lead
+(Decision 021 doesn't apply here). Rate limiter: >5 incidents in a
+trailing 5-minute window (a live query against `injection_incidents`,
+not a second counter) trips a breaker; one "pausing alerts" email
+goes out, then nothing further until an incident arrives ≥1 hour after
+the previous one — checked lazily on the next incident, never swept on
+a timer, same style as `run_lock.py`'s staleness fallback. State lives
+in a new one-row-per-rep `rep_injection_alert_state` table, updated via
+the same `INSERT ... ON CONFLICT` + row-lock convention as `locks.py`.
+Settings panel (the existing gear-icon settings-pop in `workspace.html`)
+has a toggle plus two indicators, filtered to "since this login" for
+**display only** — the real state timestamps are untouched by logging
+out and back in, so that can't be used to dodge the cooldown early.
+Migration `9b7b659d2338`. Regression caught and fixed along the way:
+the two new tables broke `seed_demo_data.py --wipe` with the same
+FK-ordering bug already fixed once for `rep_google_credentials` —
+`wipe()` now deletes those rows before deleting the rep too.
+
 ## Commands
 
 Local dev Postgres (no Docker; isolated data dir/port, not the system Postgres):

@@ -33,6 +33,9 @@ class Rep(Base):
     # Deactivating a rep (instead of deleting) preserves their history
     # in contact_history.rep_id while blocking future logins/approvals.
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    # Settings toggle for leadpilot.injection_alerts — off just skips
+    # emailing; incidents are still logged either way.
+    injection_alerts_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

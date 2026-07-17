@@ -35,7 +35,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from leadpilot import injection_guard
+from leadpilot import injection_alerts, injection_guard
 from leadpilot.connectors.base import LeadRecord
 from leadpilot.models.dedup import LeadSourceRow
 from leadpilot.models.leads import Lead
@@ -53,9 +53,13 @@ def find_matching_lead(session: Session, phone: str | None, email: str | None) -
     return None
 
 
-def upsert_lead_for_record(session: Session, source_id: str, record: LeadRecord) -> uuid.UUID:
+def upsert_lead_for_record(session: Session, rep_id: uuid.UUID, source_id: str, record: LeadRecord) -> uuid.UUID:
     original_phone, original_email = record.phone, record.email
-    injection_guard.sanitize_record_in_place(record)
+    flagged_reasons = injection_guard.sanitize_record_in_place(record)
+    if flagged_reasons:
+        injection_alerts.record_incident_and_maybe_notify(
+            session, rep_id, source_id, record.row_ref, flagged_reasons,
+        )
 
     existing_row = session.execute(
         select(LeadSourceRow).where(

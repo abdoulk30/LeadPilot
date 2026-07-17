@@ -14,6 +14,7 @@ from leadpilot.models import (  # noqa: F401
     agent_run_report,
     contact_history,
     dedup,
+    injection_alert,
     leads,
     rep,
     rep_google_credential,

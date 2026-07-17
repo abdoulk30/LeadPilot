@@ -42,6 +42,7 @@ from leadpilot.models.contact_history import (  # noqa: E402
     Tool,
 )
 from leadpilot.models.dedup import LeadSourceRow  # noqa: E402
+from leadpilot.models.injection_alert import InjectionIncident, RepInjectionAlertState  # noqa: E402
 from leadpilot.models.leads import Lead  # noqa: E402
 from leadpilot.models.rep import Rep, RepSession  # noqa: E402
 from leadpilot.models.rep_google_credential import RepGoogleCredential  # noqa: E402
@@ -98,6 +99,11 @@ def wipe(session):
         # walkthrough) leaves this row behind, and it blocks deleting
         # the rep otherwise.
         session.query(RepGoogleCredential).filter_by(rep_id=rep.rep_id).delete()
+        # Also FK'd to reps — injection_alerts.record_incident_and_maybe_notify
+        # leaves these behind for any rep who ever had a flagged sheet
+        # row, same FK-ordering issue as the deletes above.
+        session.query(InjectionIncident).filter_by(rep_id=rep.rep_id).delete()
+        session.query(RepInjectionAlertState).filter_by(rep_id=rep.rep_id).delete()
         session.delete(rep)
     session.commit()
     print(f"Wiped {len(leads)} demo leads and {len(reps)} demo reps.")

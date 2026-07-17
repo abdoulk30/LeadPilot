@@ -66,26 +66,37 @@ import unicodedata
 FLAGGED_PLACEHOLDER = "[INVALID INPUT — FLAGGED FOR REVIEW]"
 
 _INJECTION_PATTERNS = [
-    re.compile(r"ignore\s+(the\s+)?(previous|prior|all|above)\s+(prompts?|instructions?)", re.IGNORECASE),
-    re.compile(r"disregard\s+(the\s+)?(previous|prior|all|above)", re.IGNORECASE),
-    re.compile(r"you\s+are\s+now\s+(the\s+)?(admin|administrator|system)", re.IGNORECASE),
-    re.compile(r"\bsystem\s+prompt\b", re.IGNORECASE),
-    re.compile(r"\bsystem\s+reset\b", re.IGNORECASE),
-    re.compile(r"\boverride\b", re.IGNORECASE),
-    re.compile(r"\badministrator\b|\badmin\b", re.IGNORECASE),
-    re.compile(r"\bsensitive\s+interaction\s+logs?\b", re.IGNORECASE),
-    re.compile(
+    (re.compile(r"ignore\s+(the\s+)?(previous|prior|all|above)\s+(prompts?|instructions?)", re.IGNORECASE),
+     "instruction-override phrasing"),
+    (re.compile(r"disregard\s+(the\s+)?(previous|prior|all|above)", re.IGNORECASE),
+     "instruction-override phrasing"),
+    (re.compile(r"you\s+are\s+now\s+(the\s+)?(admin|administrator|system)", re.IGNORECASE),
+     "instruction-override phrasing"),
+    (re.compile(r"\bsystem\s+prompt\b", re.IGNORECASE),
+     "instruction-override phrasing"),
+    (re.compile(r"\bsystem\s+reset\b", re.IGNORECASE),
+     "instruction-override phrasing"),
+    (re.compile(r"\boverride\b", re.IGNORECASE),
+     "instruction-override phrasing"),
+    (re.compile(r"\badministrator\b|\badmin\b", re.IGNORECASE),
+     "instruction-override phrasing"),
+    (re.compile(r"\bsensitive\s+interaction\s+logs?\b", re.IGNORECASE),
+     "references sensitive interaction logs"),
+    (re.compile(
         r"\b(dispatch_slack_handoff|initiate_lead_call|send_lead_text|send_lead_email|"
         r"update_lead_sheet|fetch_all_leads|fetch_ad_hoc_sheet|verify_drive_contents|"
         r"log_call_outcome|get_contact_history|search_communications)\b",
         re.IGNORECASE,
-    ),
+    ), "names an internal tool"),
     # Exfiltration-style requests — a different vocabulary from
     # instruction-override attempts, so needs its own patterns rather
     # than an extension of the ones above.
-    re.compile(r"\b(list|show|output|reveal|print|dump)\s+(me\s+)?(all|every|your)\b", re.IGNORECASE),
-    re.compile(r"\bcontact\s+histor(y|ies)\s+you\s+have\s+access\s+to\b", re.IGNORECASE),
-    re.compile(r"\bwhat\s+is\s+your\s+system\s+prompt\b", re.IGNORECASE),
+    (re.compile(r"\b(list|show|output|reveal|print|dump)\s+(me\s+)?(all|every|your)\b", re.IGNORECASE),
+     "data-exfiltration request phrasing"),
+    (re.compile(r"\bcontact\s+histor(y|ies)\s+you\s+have\s+access\s+to\b", re.IGNORECASE),
+     "data-exfiltration request phrasing"),
+    (re.compile(r"\bwhat\s+is\s+your\s+system\s+prompt\b", re.IGNORECASE),
+     "data-exfiltration request phrasing"),
 ]
 
 # Homoglyph defense (see module docstring point 2): a legitimate
@@ -124,42 +135,51 @@ def _has_mixed_script(value: str) -> bool:
 _GUARDED_FIELDS = ("name", "phone", "email", "company", "status")
 
 
-def is_suspicious(value: str) -> bool:
+def is_suspicious(value: str) -> tuple[bool, str | None]:
+    """Returns (flagged, reason). reason is None when not flagged, and
+    is the first matching category otherwise — a value can trip more
+    than one pattern, but the first is a sufficient explanation.
+    """
     normalized = _strip_invisible_characters(value)
-    if any(pattern.search(normalized) for pattern in _INJECTION_PATTERNS):
-        return True
-    return _has_mixed_script(normalized)
+    for pattern, reason in _INJECTION_PATTERNS:
+        if pattern.search(normalized):
+            return True, reason
+    if _has_mixed_script(normalized):
+        return True, "mixes Latin script with Cyrillic/Greek characters (possible homoglyph attack)"
+    return False, None
 
 
-def sanitize_field(value: str | None) -> tuple[str | None, bool]:
-    """Returns (possibly-replaced value, was_flagged). None/empty
+def sanitize_field(value: str | None) -> tuple[str | None, bool, str | None]:
+    """Returns (possibly-replaced value, was_flagged, reason). None/empty
     values pass through untouched — there's nothing to inject into.
     """
     if not value:
-        return value, False
-    if is_suspicious(value):
-        return FLAGGED_PLACEHOLDER, True
-    return value, False
+        return value, False, None
+    flagged, reason = is_suspicious(value)
+    if flagged:
+        return FLAGGED_PLACEHOLDER, True, reason
+    return value, False, None
 
 
-def sanitize_record_in_place(record) -> bool:
+def sanitize_record_in_place(record) -> dict[str, str]:
     """Mutates a LeadRecord's guarded fields in place, replacing any
     that match a known injection pattern with FLAGGED_PLACEHOLDER.
-    Returns True if anything was flagged, so the caller can propagate
-    that into whatever "Needs Manual Review" signal it returns (PRD
+    Returns a {field_name: reason} map of whatever was flagged, so the
+    caller can propagate not just *that* something was flagged but
+    *why* into whatever "Needs Manual Review" signal it returns (PRD
     v1.05's OUTPUT FORMAT / testing/eval-suite.md Case 3) — Step 4's
     actual agent loop doesn't exist yet to consume that signal, but the
-    boolean is here now so it doesn't need retrofitting later.
+    reasons are here now so it doesn't need retrofitting later.
 
     Takes a plain LeadRecord rather than importing the class to avoid a
     circular import with connectors/base.py, which doesn't need to
     depend on this module.
     """
-    flagged = False
+    reasons: dict[str, str] = {}
     for field_name in _GUARDED_FIELDS:
         value = getattr(record, field_name)
-        sanitized, was_flagged = sanitize_field(value)
+        sanitized, was_flagged, reason = sanitize_field(value)
         if was_flagged:
             setattr(record, field_name, sanitized)
-            flagged = True
-    return flagged
+            reasons[field_name] = reason
+    return reasons

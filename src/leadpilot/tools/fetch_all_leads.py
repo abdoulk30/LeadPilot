@@ -87,7 +87,7 @@ def run(
         results = []
         for source_id in connector.list_sources():
             for record in connector.fetch_rows(source_id):
-                lead_id = lead_ingest.upsert_lead_for_record(session, source_id, record)
+                lead_id = lead_ingest.upsert_lead_for_record(session, rep_id, source_id, record)
                 results.append(lead_ingest.record_to_dict(source_id, lead_id, record))
         session.commit()
         return results

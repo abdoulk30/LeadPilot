@@ -30,6 +30,7 @@ tools' own tests.
 
 import json
 import logging
+import re
 import uuid
 from pathlib import Path
 
@@ -254,7 +255,7 @@ def sync_sheets(
     except RepNotConnectedError:
         message, is_error = "Connect your Google account first (Connect Google, top right).", True
     except Exception as e:  # surfaced, not swallowed — reps route around silent failure
-        message, is_error = f"Sync failed: {e}", True
+        message, is_error = f"Sync failed: {_clean_error(e)}", True
 
     return templates.TemplateResponse(
         request,
@@ -360,7 +361,7 @@ def lead_rail(
             )
             docs = queue_builder.doc_checklist(files)
         except Exception as e:
-            docs_error = f"Couldn't read that folder: {e}"
+            docs_error = f"Couldn't read that folder: {_clean_error(e)}"
     ctx = _center_context(db, rep, lead, docs=docs, docs_error=docs_error, folder_id=folder_id)
     return templates.TemplateResponse(request, "partials/rail.html", ctx)
 
@@ -370,6 +371,19 @@ def lead_rail(
 
 def _get_event(db: Session, event_id: uuid.UUID) -> ContactHistory | None:
     return db.get(ContactHistory, event_id)
+
+
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _clean_error(exc: Exception) -> str:
+    """Some vendor SDKs (Twilio's TwilioRestException) colorize __str__
+    with raw ANSI codes whenever stderr looks like a tty — true for a
+    dev server launched directly in a terminal, exactly how this app
+    normally runs. Strip them so a rendered error card shows plain text
+    instead of literal escape sequences.
+    """
+    return _ANSI_ESCAPE.sub("", str(exc))
 
 
 def _render(request: Request, template_name: str, ctx: dict) -> str:
@@ -580,7 +594,7 @@ def approve_action(
         db.commit()
         _set_outcome(db, event_id, Outcome.FAILED, only_if_executed=True)
         db.commit()
-        result["error_message"] = f"Execution failed: {e}"
+        result["error_message"] = f"Execution failed: {_clean_error(e)}"
 
     db.expire_all()
     event = _get_event(db, event_id)
@@ -733,7 +747,7 @@ def stage_sheet_edit(
             connector=sheets_connector_factory(db, rep.rep_id),
         )
     except Exception as e:
-        stage_error = f"Couldn't stage this edit: {e}"
+        stage_error = f"Couldn't stage this edit: {_clean_error(e)}"
 
     return templates.TemplateResponse(
         request, "partials/lead_center.html",
@@ -770,7 +784,7 @@ def docs_tools(
             )
             docs = queue_builder.doc_checklist(files)
         except Exception as e:
-            docs_error = f"Couldn't read that folder: {e}"
+            docs_error = f"Couldn't read that folder: {_clean_error(e)}"
     return templates.TemplateResponse(
         request,
         "partials/docs_tools.html",
@@ -796,7 +810,7 @@ def adhoc_sheet(
     try:
         rows = fetch_ad_hoc_sheet.run(db, rep.rep_id, source_id, connector=connector)
     except Exception as e:
-        return templates.TemplateResponse(request, "partials/adhoc_result.html", {"error": str(e)})
+        return templates.TemplateResponse(request, "partials/adhoc_result.html", {"error": _clean_error(e)})
     new_count = sum(1 for r in rows if uuid.UUID(r["lead_id"]) not in before)
     flagged_count = sum(1 for r in rows if r["flagged"])
 
@@ -991,7 +1005,7 @@ def search_results(
     except ValueError as e:
         error = str(e)
     except Exception as e:
-        error = f"Search failed: {e}"
+        error = f"Search failed: {_clean_error(e)}"
 
     return templates.TemplateResponse(
         request,

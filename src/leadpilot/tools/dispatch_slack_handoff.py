@@ -129,6 +129,22 @@ def execute_dispatch_slack_handoff(
     if event is None or event.channel != Channel.SLACK_HANDOFF or event.tool != Tool.DISPATCH_SLACK_HANDOFF:
         return None
 
+    # Re-check before consuming the approval, not after: SLACK_HANDOFF_
+    # CHANNEL_IDS can be empty at execute time even though run() checked
+    # it at staging time (e.g. config changed in between, or — as
+    # actually happened seeding demo data — a separate process staged
+    # drafts under a different in-process settings override than the
+    # one this server is running with). Without this, an empty channel
+    # list falls through to "Posted to 0 of 0 stakeholder channels" —
+    # phrased and styled as success even though nothing was sent
+    # anywhere. Raising here (config failure, same category as run()'s
+    # own check) leaves the row APPROVED per the documented failure
+    # policy — nothing was consumed, the button stays available.
+    if not _channel_ids():
+        raise RuntimeError(
+            "SLACK_HANDOFF_CHANNEL_IDS is empty in .env.local — nowhere to send this handoff"
+        )
+
     if not gate.try_execute(session, event_id):
         return None
 

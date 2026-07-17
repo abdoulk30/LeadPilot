@@ -100,6 +100,33 @@ def test_execute_returns_none_before_approval(db_session, monkeypatch):
     assert result is None
 
 
+def test_execute_raises_if_channels_emptied_after_staging(db_session, monkeypatch):
+    """A gap actually found live: seed_demo_data.py stages drafts under
+    an in-process settings override, but the real server process reads
+    SLACK_HANDOFF_CHANNEL_IDS fresh from .env.local — so a draft can be
+    staged with channels configured, then approved in a process where
+    they're empty. Before this test, that fell through to '0 of 0
+    deliveries', shown as success. Must raise instead, leaving the row
+    APPROVED (config failure, not consumed) rather than lying about
+    having sent anything.
+    """
+    monkeypatch.setattr(settings, "slack_handoff_channel_ids", "C111")
+    lead_id = _make_lead(db_session)
+    rep_id = _make_rep(db_session)
+    staged = dispatch_slack_handoff(db_session, lead_id=lead_id, message_type="info_request", message="hi")
+    gate.approve(db_session, uuid.UUID(staged["event_id"]), rep_id=rep_id)
+
+    monkeypatch.setattr(settings, "slack_handoff_channel_ids", "")
+    fake_client = FakeSlackClient()
+
+    with pytest.raises(RuntimeError, match="SLACK_HANDOFF_CHANNEL_IDS is empty"):
+        execute_dispatch_slack_handoff(db_session, event_id=staged["event_id"], slack_client=fake_client)
+
+    assert fake_client.calls == []
+    row = db_session.get(ContactHistory, uuid.UUID(staged["event_id"]))
+    assert row.stage == Stage.APPROVED
+
+
 def test_execute_posts_to_every_configured_channel_after_approval(db_session, monkeypatch):
     monkeypatch.setattr(settings, "slack_handoff_channel_ids", "C111,C222,C333")
     lead_id = _make_lead(db_session)

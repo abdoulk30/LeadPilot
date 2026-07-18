@@ -175,6 +175,28 @@ the two new tables broke `seed_demo_data.py --wipe` with the same
 FK-ordering bug already fixed once for `rep_google_credentials` —
 `wipe()` now deletes those rows before deleting the rep too.
 
+**On-demand AI email drafting + pending-approval indicator (2026-07-18,
+Decision 040).** `email_drafting.py` adds a "✨ Draft with AI" button
+inside the email compose form (`lead_center.html`) — a single, non-tool
+Anthropic Messages API call scoped to one lead's profile + full contact
+history, prefilling `{subject, body}` for the rep to review/edit.
+Deliberately not a call into `agent_loop.py`'s batch tool-calling
+loop (that's a whole-batch autonomous judgment across every channel;
+this is a narrower, synchronous, rep-triggered ask) and never touches
+`gate.py` — the rep still clicks "Stage draft for approval" themselves.
+Uses a separate, cheaper/faster model (`settings.anthropic_draft_model`,
+default `claude-sonnet-5`, env-overridable via `ANTHROPIC_DRAFT_MODEL`)
+than the batch job's `claude-opus-4-8`, since a rep is waiting live in
+the UI. Signs with the rep's real name when available instead of a
+placeholder. Also fixed a related gap: `stage_email`'s error path used
+to silently re-hide the compose form on failure, discarding whatever
+the rep had typed — now keeps it open and repopulated. Separately,
+`queue_builder.total_pending_approvals()` + a topbar badge
+(`partials/pending_badge.html`) show the org-wide count of drafts
+awaiting approval across every lead; polls every 20s in addition to the
+existing `leads-changed` event, since approve/reject/execute only swap
+their own action card today, not the queue pane.
+
 ## Commands
 
 Local dev Postgres (no Docker; isolated data dir/port, not the system Postgres):

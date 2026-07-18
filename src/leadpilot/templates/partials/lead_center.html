@@ -69,14 +69,26 @@
     </form>
   </div>
 
-  <div class="card action-card" id="compose-email" hidden>
+  <div class="card action-card" id="compose-email" {% if not compose_email_open %}hidden{% endif %}>
     <span class="micro">New email to {{ lead.primary_email }}</span>
     <form hx-post="/ui/leads/{{ lead.lead_id }}/stage-email"
           hx-target="#center-pane" hx-swap="innerHTML" style="margin-top: 8px;">
+      <div class="btn-row" style="margin-bottom: 10px;">
+        <button type="button"
+                hx-post="/ui/leads/{{ lead.lead_id }}/draft-email"
+                hx-target="#center-pane" hx-swap="innerHTML"
+                hx-indicator="#draft-email-spinner"
+                {% if not lead.primary_email %}disabled{% endif %}>
+          ✨ Draft with AI
+        </button>
+        <span id="draft-email-spinner" class="htmx-indicator faint" style="font-size: 11px; align-self: center;">
+          Drafting from lead + contact history…
+        </span>
+      </div>
       <label class="field-label">Subject</label>
-      <input type="text" name="subject" required>
+      <input type="text" name="subject" required value="{{ email_draft.subject if email_draft else '' }}">
       <label class="field-label">Body</label>
-      <textarea name="body" rows="5" required></textarea>
+      <textarea name="body" rows="5" required>{{ email_draft.body if email_draft else '' }}</textarea>
       <div class="btn-row">
         <button type="submit">Stage draft for approval</button>
         <button type="button" hx-on:click="document.getElementById('compose-email').setAttribute('hidden', '')">Cancel</button>

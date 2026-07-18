@@ -28,7 +28,7 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from leadpilot.connectors.google_drive import PDF_MIME_TYPE
@@ -177,6 +177,19 @@ def build_queue(session: Session, rep_id: uuid.UUID, q: str | None = None) -> li
         )
     )
     return items
+
+
+def total_pending_approvals(session: Session) -> int:
+    """Aggregate count across every lead, not scoped to the requesting
+    rep — the queue itself is org-wide (Decision 036 A12: any rep can
+    approve any lead's draft, Phase 1's single-sales-org scope), so
+    this indicator counts the same way. Chat request, 2026-07-18:
+    per-lead "N pending approvals" text already existed in the queue
+    row subtitle, but there was no glance-able total.
+    """
+    return session.execute(
+        select(func.count()).select_from(ContactHistory).where(ContactHistory.stage.in_(PENDING_STAGES))
+    ).scalar_one()
 
 
 def pending_actions(session: Session, lead_id: uuid.UUID) -> list[ContactHistory]:

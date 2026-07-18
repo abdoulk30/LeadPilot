@@ -17,6 +17,14 @@
 
     <span class="spacer"></span>
 
+    {# Approve/reject/execute only swap their own action card, not the
+       queue or this badge (§6f's per-card scoping) — polling is a
+       lightweight safety net so the count doesn't quietly go stale
+       between an approve click and the next full queue refresh. #}
+    <span id="pending-badge"
+          hx-get="/ui/pending-count" hx-trigger="load, leads-changed from:body, every 20s"
+          hx-swap="innerHTML"></span>
+
     <button hx-get="/ui/search" hx-target="#drawer-slot" hx-swap="innerHTML">Search</button>
     <button hx-get="/ui/connect" hx-target="#drawer-slot" hx-swap="innerHTML">Connect Google</button>
     {# Plain by default; highlights on hover; stays highlighted while

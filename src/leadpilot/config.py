@@ -89,6 +89,10 @@ class Settings(BaseSettings):
     # Opus is the current recommended default for agentic work; swap
     # via env without a deploy if cost/quality tuning says otherwise.
     anthropic_model: str = "claude-opus-4-8"
+    # Separate, deliberately cheaper/faster model for on-demand, single-
+    # lead email drafting (leadpilot.email_drafting) — a rep is waiting
+    # live in the UI for this one, unlike the batch job's background run.
+    anthropic_draft_model: str = "claude-sonnet-5"
 
 
 settings = Settings()

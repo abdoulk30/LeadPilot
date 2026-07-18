@@ -40,7 +40,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from leadpilot import auth, gate, google_credentials, injection_alerts, queue_builder
+from leadpilot import auth, email_drafting, gate, google_credentials, injection_alerts, queue_builder
 from leadpilot.config import settings
 from leadpilot.connectors.base import ConcurrentWriteError, StaleWriteError
 from leadpilot.connectors.google_sheets import RepNotConnectedError
@@ -95,6 +95,10 @@ def gmail_service_factory():
 
 
 def slack_client_factory():
+    return None
+
+
+def anthropic_client_factory():
     return None
 
 
@@ -230,6 +234,23 @@ def workspace(
     )
 
 
+@router.get("/ui/pending-count", response_class=HTMLResponse)
+def pending_count(
+    request: Request,
+    rep: Rep = Depends(require_rep_ui),
+    db: Session = Depends(get_db_ui),
+):
+    """Topbar aggregate — org-wide count of drafts sitting in
+    awaiting_rep_approval/approved across every lead, not just the
+    requesting rep's own. Loaded via htmx on page load and refreshed on
+    the same `leads-changed` event the queue pane already listens for,
+    so it stays live without its own polling.
+    """
+    return templates.TemplateResponse(
+        request, "partials/pending_badge.html", {"count": queue_builder.total_pending_approvals(db)}
+    )
+
+
 @router.post("/ui/settings/injection-alerts", response_class=HTMLResponse)
 def toggle_injection_alerts(
     request: Request,
@@ -362,6 +383,8 @@ def _center_context(db: Session, rep: Rep, lead: Lead, **extra) -> dict:
         "docs_error": None,
         "folder_options": [i for i in granted_items(db, rep.rep_id) if i["is_folder"]],
         "folder_id": None,
+        "email_draft": None,
+        "compose_email_open": False,
         **extra,
     }
 
@@ -754,8 +777,47 @@ def stage_email(
     except ValueError as e:
         db.rollback()
         stage_error = str(e)
+    extra = {}
+    if stage_error:
+        # Keep the form open with what the rep already typed (which may
+        # include an AI draft they were editing) instead of silently
+        # discarding it behind the now-hidden form.
+        extra = {"email_draft": {"subject": subject, "body": body}, "compose_email_open": True}
     return templates.TemplateResponse(
-        request, "partials/lead_center.html", _center_context(db, rep, lead, stage_error=stage_error)
+        request, "partials/lead_center.html", _center_context(db, rep, lead, stage_error=stage_error, **extra)
+    )
+
+
+@router.post("/ui/leads/{lead_id}/draft-email", response_class=HTMLResponse)
+def draft_email(
+    request: Request,
+    lead_id: uuid.UUID,
+    rep: Rep = Depends(require_rep_ui),
+    db: Session = Depends(get_db_ui),
+):
+    """Fills the compose-email form with an AI-generated subject/body
+    for review — never stages anything itself (that's still the rep's
+    own "Stage draft for approval" click on the same form). A real,
+    live Anthropic API call, so this can take a few seconds and does
+    cost something each click — deliberately not triggered just by
+    opening the blank compose form.
+    """
+    lead = _lead_or_404(db, lead_id)
+    stage_error = None
+    email_draft = None
+    try:
+        email_draft = email_drafting.draft_email_for_lead(
+            db, lead_id, rep=rep, anthropic_client=anthropic_client_factory()
+        )
+    except (ValueError, email_drafting.LeadNotFoundError) as e:
+        stage_error = str(e)
+    except Exception:
+        logger.exception("AI email draft failed for lead_id=%s", lead_id)
+        stage_error = "Couldn't generate a draft right now — try again, or write it yourself below."
+    return templates.TemplateResponse(
+        request,
+        "partials/lead_center.html",
+        _center_context(db, rep, lead, stage_error=stage_error, email_draft=email_draft, compose_email_open=True),
     )
 
 

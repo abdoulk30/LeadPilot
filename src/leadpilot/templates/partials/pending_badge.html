@@ -1,0 +1,12 @@
+{# Topbar aggregate indicator (chat request, 2026-07-18) — the per-lead
+   "N pending approvals" subtitle already existed in the queue row, but
+   nothing showed the org-wide total at a glance. Reuses .handoff-badge
+   rather than inventing new styling; .urgent tint kicks in whenever
+   there's anything to look at, same semantic as the per-lead badge. #}
+{% if count > 0 %}
+<span class="handoff-badge urgent" title="Drafts awaiting approval across the queue">
+  {{ count }} draft{{ "s" if count != 1 else "" }} awaiting approval
+</span>
+{% else %}
+<span class="handoff-badge" title="Nothing awaiting approval right now">All caught up</span>
+{% endif %}

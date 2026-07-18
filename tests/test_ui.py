@@ -156,6 +156,23 @@ def test_queue_lists_lead_with_rank_pill(ws):
     assert "R2" in response.text  # no contact yet → Rank 2
 
 
+def test_pending_badge_shows_all_caught_up_with_nothing_staged(ws):
+    response = ws.client.get("/ui/pending-count")
+    assert response.status_code == 200
+    assert "All caught up" in response.text
+
+
+def test_pending_badge_counts_a_staged_draft(ws):
+    s = SessionLocal()
+    send_lead_email.send_lead_email(s, lead_id=ws.lead_id, subject="Hi", body="Body")
+    s.commit()
+    s.close()
+
+    response = ws.client.get("/ui/pending-count")
+    assert response.status_code == 200
+    assert "1 draft awaiting approval" in response.text
+
+
 def test_urgent_handoff_sorts_lead_to_top_and_badges_it(ws, monkeypatch):
     monkeypatch.setattr(settings, "slack_handoff_channel_ids", "C1,C2,C3")
     s = SessionLocal()
@@ -255,6 +272,54 @@ def test_edit_email_updates_subject_and_body_keeps_recipient(ws):
     )
     content = json.loads(_event(staged["event_id"]).content_ref)
     assert content == {"subject": "New subject", "body": "New body", "to": "queue-lead@example.com"}
+
+
+class FakeAnthropicDraftClient:
+    def __init__(self, response_text):
+        self._response_text = response_text
+        self.messages = self
+
+    def create(self, **kwargs):
+        from types import SimpleNamespace
+        return SimpleNamespace(content=[SimpleNamespace(type="text", text=self._response_text)])
+
+
+def test_draft_with_ai_prefills_the_compose_form_without_staging(ws, monkeypatch):
+    fake = FakeAnthropicDraftClient(json.dumps({"subject": "Quick follow-up", "body": "Hi there, ..."}))
+    monkeypatch.setattr(ui, "anthropic_client_factory", lambda: fake)
+
+    response = ws.client.post(f"/ui/leads/{ws.lead_id}/draft-email")
+
+    assert response.status_code == 200
+    assert "Quick follow-up" in response.text
+    assert "Hi there, ..." in response.text
+    # The form re-opens with the draft, not hidden behind another click.
+    assert 'id="compose-email"' in response.text
+    assert 'id="compose-email" hidden' not in response.text
+
+    s = SessionLocal()
+    try:
+        assert s.query(ContactHistory).filter_by(lead_id=ws.lead_id).count() == 0
+    finally:
+        s.close()
+
+
+def test_draft_with_ai_shows_a_friendly_error_on_model_failure(ws, monkeypatch):
+    class BoomClient:
+        messages = None
+
+        def __init__(self):
+            self.messages = self
+
+        def create(self, **kwargs):
+            raise RuntimeError("upstream exploded")
+
+    monkeypatch.setattr(ui, "anthropic_client_factory", lambda: BoomClient())
+
+    response = ws.client.post(f"/ui/leads/{ws.lead_id}/draft-email")
+
+    assert response.status_code == 200
+    assert "generate a draft right now" in response.text
 
 
 # ---- Approve: call → clipboard + outcome (§6f) ----------------------------

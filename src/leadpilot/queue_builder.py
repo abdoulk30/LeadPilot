@@ -56,6 +56,10 @@ _CHANNEL_LABELS = {
 }
 
 
+def _absolute(ts: datetime) -> str:
+    return ts.strftime("%b %d, %Y %I:%M %p UTC")
+
+
 def ago(ts: datetime, now: datetime | None = None) -> str:
     now = now or datetime.now(timezone.utc)
     delta = now - ts
@@ -276,6 +280,22 @@ def describe_event(event: ContactHistory, rep_names: dict[uuid.UUID, str], curre
     if event.rep_id is not None:
         actor = "you" if event.rep_id == current_rep_id else rep_names.get(event.rep_id, "another rep")
 
+    # Collapsed to two rep-facing states for email (rather than the raw
+    # stage/outcome vocabulary): "draft" covers every not-yet-sent state
+    # (drafted/awaiting_rep_approval/approved, but also rejected/expired —
+    # deliberately, since the point is a durable reminder in history that
+    # this email was never sent so the agent/rep can pick it back up),
+    # and "sent" replaces the provider-neutral "delivered" outcome label,
+    # which overstated what Gmail's send API actually confirms.
+    email_status = None
+    if event.tool == Tool.SEND_LEAD_EMAIL:
+        if event.stage != Stage.EXECUTED:
+            email_status = "draft"
+        elif event.outcome == Outcome.FAILED:
+            email_status = "failed"
+        else:
+            email_status = "sent"
+
     return {
         "event_id": str(event.event_id),
         "channel": event.channel.value,
@@ -286,6 +306,8 @@ def describe_event(event: ContactHistory, rep_names: dict[uuid.UUID, str], curre
         "message_type": event.message_type.value if event.message_type else None,
         "timestamp": event.timestamp,
         "when": ago(event.timestamp),
+        "when_absolute": _absolute(event.timestamp),
+        "email_status": email_status,
         "actor": actor,
         "subject": subject,
         "body": body,

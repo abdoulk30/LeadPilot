@@ -45,14 +45,18 @@
     <summary>
       {{ e.channel_label }}
       {% if e.message_type %}· {{ e.message_type.replace("_", " ") }}{% endif %}
-      {% if e.stage != "executed" %}<span class="faint">· {{ e.stage.replace("_", " ") }}</span>{% endif %}
-      {% if e.pending_outcome %}
-        <span class="pending-outcome">· outcome unknown — follow-up logic paused</span>
-      {% elif e.outcome %}
-        <span class="faint">· {{ e.outcome.replace("_", " ") }}</span>
+      {% if e.tool == "send_lead_email" %}
+        <span class="faint">· {{ e.email_status }}</span>
+      {% else %}
+        {% if e.stage != "executed" %}<span class="faint">· {{ e.stage.replace("_", " ") }}</span>{% endif %}
+        {% if e.pending_outcome %}
+          <span class="pending-outcome">· outcome unknown — follow-up logic paused</span>
+        {% elif e.outcome %}
+          <span class="faint">· {{ e.outcome.replace("_", " ") }}</span>
+        {% endif %}
       {% endif %}
       <div class="meta">
-        {{ e.when }}{% if e.actor %} · {{ e.actor }}{% endif %}
+        {{ e.when_absolute }} ({{ e.when }}){% if e.actor %} · {{ e.actor }}{% endif %}
       </div>
     </summary>
     <div class="expanded">
